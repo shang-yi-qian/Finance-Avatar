@@ -13,6 +13,11 @@ export type LiveUserProfile = {
   displayName: string;
   avatarImageUrl?: string;
   voiceId?: string;
+  voicePrompt?: string;
+  voiceTranscript?: string;
+  slangExamples: string[];
+  preferredPhrases: string[];
+  toneFormality: number;
   riskTolerance: number;
   jargonLevel: number;
   horizon: string;
@@ -27,6 +32,11 @@ export const SELECTED_AVATAR_KEY = "pitchsnap:selectedAvatar";
 export const DEFAULT_USER_PROFILE: LiveUserProfile = {
   userId: "live_demo_user",
   displayName: "Demo User",
+  voicePrompt: "Tell me about one investment you like, one you avoid, and how you explain risk to a friend.",
+  voiceTranscript: "",
+  slangExamples: ["honestly", "I like", "I worry"],
+  preferredPhrases: ["fits my risk", "long-term setup"],
+  toneFormality: 0.35,
   riskTolerance: 0.72,
   jargonLevel: 0.55,
   horizon: "6_months_to_2_years",
@@ -51,10 +61,11 @@ export function createUserId(displayName: string) {
 export function buildStyleSummary(profile: LiveUserProfile) {
   const interests = profile.thematicInterests.slice(0, 3).join(", ") || "custom interests";
   const assetTypes = Array.from(new Set(profile.portfolio.map((holding) => holding.assetType))).join(", ");
+  const lingo = profile.slangExamples.slice(0, 3).join(", ") || "live voice sample pending";
   return (
     `${profile.displayName}: risk ${Math.round(profile.riskTolerance * 100)}%, ` +
     `jargon ${Math.round(profile.jargonLevel * 100)}%, ${profile.horizon.replaceAll("_", " ")}, ` +
-    `${interests}, assets: ${assetTypes || "none"}`
+    `${interests}, assets: ${assetTypes || "none"}, lingo: ${lingo}`
   );
 }
 
@@ -75,6 +86,14 @@ export function loadUserProfile(): LiveUserProfile {
         Array.isArray(parsed.thematicInterests) && parsed.thematicInterests.length > 0
           ? parsed.thematicInterests
           : DEFAULT_USER_PROFILE.thematicInterests,
+      slangExamples:
+        Array.isArray(parsed.slangExamples) && parsed.slangExamples.length > 0
+          ? parsed.slangExamples
+          : DEFAULT_USER_PROFILE.slangExamples,
+      preferredPhrases:
+        Array.isArray(parsed.preferredPhrases) && parsed.preferredPhrases.length > 0
+          ? parsed.preferredPhrases
+          : DEFAULT_USER_PROFILE.preferredPhrases,
     };
   } catch {
     return DEFAULT_USER_PROFILE;
@@ -91,6 +110,9 @@ export function saveUserProfile(profile: LiveUserProfile) {
 export function toBackendProfile(profile: LiveUserProfile) {
   return {
     user_id: profile.userId,
+    voice_id: profile.voiceId,
+    voice_transcript: profile.voiceTranscript,
+    preferred_phrases: profile.preferredPhrases,
     portfolio: profile.portfolio.map(({ ticker, assetType, weight, avgCost }) => ({
       ticker,
       asset_type: assetType,
@@ -102,9 +124,9 @@ export function toBackendProfile(profile: LiveUserProfile) {
       preferred_framing: "upside_first",
     },
     tone: {
-      formality: 0.25,
+      formality: profile.toneFormality,
       emoji_usage: 0.35,
-      slang_examples: ["lowkey", "ngl"],
+      slang_examples: profile.slangExamples,
     },
     jargon_tolerance: {
       level: profile.jargonLevel,
@@ -126,4 +148,3 @@ export function toConvexPortfolio(profile: LiveUserProfile) {
     avgCost,
   }));
 }
-

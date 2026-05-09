@@ -69,7 +69,7 @@ export async function getProfile(userId: string): Promise<ProfileResponse> {
 export function profileToPanelProfile(profile: LiveUserProfile): ProfileResponse {
   return {
     user_id: profile.userId,
-    tone: { formality: 0.25, emoji_usage: 0.35, slang_examples: ["custom", "live"] },
+    tone: { formality: profile.toneFormality, emoji_usage: 0.35, slang_examples: profile.slangExamples },
     jargon_tolerance: {
       level: profile.jargonLevel,
       known_terms: ["P/E", "EPS", "beta", "market cap"],
@@ -88,6 +88,15 @@ export async function postOnboard(formData: FormData): Promise<{
   user_id: string;
   avatar_variants: string[];
   voice_id: string;
+  voice_transcript: string;
+  style_profile_patch: {
+    transcript?: string;
+    slang_examples?: string[];
+    preferred_phrases?: string[];
+    formality?: number;
+    explanation_depth?: string;
+    tone_summary?: string;
+  };
 }> {
   const res = await fetch(`${BASE}/onboard`, { method: "POST", body: formData });
   if (!res.ok) throw new Error(`/onboard failed: ${res.status}`);

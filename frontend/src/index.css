@@ -37,6 +37,7 @@ p { margin: 0; }
 button { cursor: pointer; font: inherit; }
 input { font: inherit; }
 select { font: inherit; }
+textarea { font: inherit; resize: vertical; }
 
 #root {
   min-height: 100dvh;
@@ -468,6 +469,48 @@ select { font: inherit; }
   color: var(--text-bright);
   outline: none;
 }
+.voice-prompt {
+  min-height: 96px;
+  line-height: 1.5;
+}
+.prompt-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.prompt-choice {
+  min-height: 108px;
+  padding: 13px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: rgba(15, 20, 32, 0.7);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+.prompt-choice:hover {
+  border-color: var(--accent-light);
+  background: rgba(34, 211, 238, 0.06);
+  transform: translateY(-1px);
+}
+.prompt-choice.active {
+  border-color: var(--cyan);
+  background: rgba(34, 211, 238, 0.11);
+}
+.prompt-choice strong {
+  color: var(--text-bright);
+  font-size: 13px;
+  font-weight: 700;
+}
+.prompt-choice span {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.45;
+}
 .field-stack {
   display: flex;
   flex-direction: column;
@@ -533,6 +576,23 @@ select { font: inherit; }
 .error-text {
   color: var(--red);
   font-size: 13px;
+}
+.lingo-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(15, 20, 32, 0.68);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+.lingo-panel p {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.lingo-panel strong {
+  color: var(--text);
 }
 .form-actions {
   display: flex;
@@ -643,6 +703,7 @@ select { font: inherit; }
   }
   .ticker-form,
   .profile-intro-grid,
+  .prompt-choice-grid,
   .control-grid,
   .portfolio-label-row,
   .portfolio-row {

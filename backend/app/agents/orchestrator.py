@@ -11,9 +11,10 @@ from app.agents.research import run_research
 from app.agents.synthesis import synthesize_pitch
 from app.agents.valuation import run_valuation
 from app.models.schemas import PitchResponse
+from app.services.elevenlabs_service import generate_speech
 
 
-async def run_orchestrator(ticker: str, profile: dict, user_id: str = "kai_demo") -> PitchResponse:
+async def run_orchestrator(ticker: str, profile: dict, user_id: str = "live_demo_user") -> PitchResponse:
     normalized_ticker = ticker.upper().strip()
 
     research = await run_research(normalized_ticker)
@@ -26,6 +27,12 @@ async def run_orchestrator(ticker: str, profile: dict, user_id: str = "kai_demo"
         research=research,
         valuation=valuation,
     )
+    audio_url = await generate_speech(
+        text=spoken_text,
+        voice_id=profile.get("voice_id"),
+        user_id=user_id,
+        ticker=normalized_ticker,
+    )
 
     return PitchResponse(
         ticker=normalized_ticker,
@@ -33,6 +40,6 @@ async def run_orchestrator(ticker: str, profile: dict, user_id: str = "kai_demo"
         pitch_id=f"phase2-{normalized_ticker.lower()}-{uuid4().hex[:8]}",
         fit_score=fit_score,
         spoken_text=spoken_text,
-        audio_url=None,
+        audio_url=audio_url,
         video_url=None,
     )

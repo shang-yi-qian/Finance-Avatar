@@ -25,6 +25,40 @@ const INTERESTS = [
   "healthcare",
 ];
 const MAX_RECORDING_SECONDS = 30;
+const DEFAULT_RECORDING_PROMPT =
+  "Tell me about one stock, ETF, or crypto you like. Why does it fit your style?";
+const RECORDING_PROMPTS = [
+  {
+    id: "favorite-asset",
+    label: "Favorite asset",
+    prompt: DEFAULT_RECORDING_PROMPT,
+  },
+  {
+    id: "avoid-list",
+    label: "Avoid list",
+    prompt: "Tell me about an investment you would avoid. What makes it feel wrong for you?",
+  },
+  {
+    id: "risk-style",
+    label: "Risk style",
+    prompt: "Explain how you think about risk to a friend who is newer to investing.",
+  },
+  {
+    id: "portfolio-taste",
+    label: "Portfolio taste",
+    prompt: "Describe your ideal portfolio. What themes, sectors, or asset types do you want more of?",
+  },
+  {
+    id: "market-reaction",
+    label: "Market reaction",
+    prompt: "Talk through a recent market move you noticed. What did you think it meant?",
+  },
+  {
+    id: "casual-pitch",
+    label: "Casual pitch",
+    prompt: "Pick any ticker or crypto you know and pitch it in your normal speaking style.",
+  },
+];
 
 type OnboardResult = Awaited<ReturnType<typeof postOnboard>>;
 
@@ -41,11 +75,20 @@ function newHolding(assetType: AssetType = "stock"): PortfolioHolding {
 export default function Onboarding() {
   const upsertUser = useMutation(api.users.upsertUser);
   const initialProfile = useRef<LiveUserProfile>(loadUserProfile()).current;
+  const initialVoicePrompt = initialProfile.voicePrompt || DEFAULT_RECORDING_PROMPT;
   const [displayName, setDisplayName] = useState(initialProfile.displayName);
   const [selfieFile, setSelfieFile] = useState<File | null>(null);
   const [selfiePreview, setSelfiePreview] = useState<string | null>(null);
   const [voiceBlob, setVoiceBlob] = useState<Blob | null>(null);
   const [voiceUrl, setVoiceUrl] = useState<string | null>(null);
+  const [voicePrompt, setVoicePrompt] = useState(initialVoicePrompt);
+  const [selectedPromptId, setSelectedPromptId] = useState(
+    RECORDING_PROMPTS.find((option) => option.prompt === initialVoicePrompt)?.id ?? "custom",
+  );
+  const [voiceTranscript, setVoiceTranscript] = useState(initialProfile.voiceTranscript || "");
+  const [slangExamples, setSlangExamples] = useState<string[]>(initialProfile.slangExamples);
+  const [preferredPhrases, setPreferredPhrases] = useState<string[]>(initialProfile.preferredPhrases);
+  const [toneFormality, setToneFormality] = useState(initialProfile.toneFormality);
   const [isRecording, setIsRecording] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(MAX_RECORDING_SECONDS);
   const [riskTolerance, setRiskTolerance] = useState(Math.round(initialProfile.riskTolerance * 100));
@@ -85,12 +128,33 @@ export default function Onboarding() {
         horizon: profile.horizon,
         experience: profile.experience,
         thematicInterests: profile.thematicInterests,
+        voicePrompt: profile.voicePrompt,
+        voiceTranscript: profile.voiceTranscript,
+        slangExamples: profile.slangExamples,
+        preferredPhrases: profile.preferredPhrases,
+        toneFormality: profile.toneFormality,
         styleProfileSummary: buildStyleSummary(profile),
       }).catch(console.error);
     }, 600);
 
     return () => window.clearTimeout(timeout);
-  }, [displayName, riskTolerance, jargonLevel, horizon, experience, interests, portfolio, selectedAvatar, result, upsertUser]);
+  }, [
+    displayName,
+    riskTolerance,
+    jargonLevel,
+    horizon,
+    experience,
+    interests,
+    portfolio,
+    selectedAvatar,
+    result,
+    voicePrompt,
+    voiceTranscript,
+    slangExamples,
+    preferredPhrases,
+    toneFormality,
+    upsertUser,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -117,6 +181,11 @@ export default function Onboarding() {
       displayName: displayName.trim() || DEFAULT_USER_PROFILE.displayName,
       avatarImageUrl,
       voiceId,
+      voicePrompt,
+      voiceTranscript,
+      slangExamples,
+      preferredPhrases,
+      toneFormality,
       riskTolerance: riskTolerance / 100,
       jargonLevel: jargonLevel / 100,
       horizon,
@@ -253,11 +322,21 @@ export default function Onboarding() {
         thematic_interests: liveProfile.thematicInterests,
         jargon_level: liveProfile.jargonLevel,
         portfolio: liveProfile.portfolio,
+        voice_prompt: voicePrompt,
       }),
     );
 
     try {
       const response = await postOnboard(formData);
+      const patch = response.style_profile_patch ?? {};
+      const nextSlang = patch.slang_examples?.filter(Boolean) ?? slangExamples;
+      const nextPhrases = patch.preferred_phrases?.filter(Boolean) ?? preferredPhrases;
+      setVoiceTranscript(response.voice_transcript || patch.transcript || "");
+      setSlangExamples(nextSlang.length > 0 ? nextSlang : slangExamples);
+      setPreferredPhrases(nextPhrases.length > 0 ? nextPhrases : preferredPhrases);
+      if (typeof patch.formality === "number") {
+        setToneFormality(Math.max(0, Math.min(1, patch.formality)));
+      }
       setResult(response);
       setSelectedAvatar(response.avatar_variants[0] ?? selectedAvatar);
       setStatus("Choose the avatar variant for this profile.");
@@ -285,6 +364,11 @@ export default function Onboarding() {
         horizon: profile.horizon,
         experience: profile.experience,
         thematicInterests: profile.thematicInterests,
+        voicePrompt: profile.voicePrompt,
+        voiceTranscript: profile.voiceTranscript,
+        slangExamples: profile.slangExamples,
+        preferredPhrases: profile.preferredPhrases,
+        toneFormality: profile.toneFormality,
         styleProfileSummary: buildStyleSummary(profile),
       });
       saveUserProfile(profile);
@@ -336,14 +420,55 @@ export default function Onboarding() {
             <div>
               <h2>Voice sample</h2>
               <p>
-                Record up to 30 seconds for the voice profile.
+                Pick a prompt the judge can answer naturally, then record it so the avatar learns real lingo.
               </p>
             </div>
             <button type="button" className={isRecording ? "btn btn-ghost" : "btn btn-primary"} onClick={isRecording ? stopRecording : startRecording}>
               {isRecording ? `Stop ${secondsLeft}s` : "Record"}
             </button>
           </div>
+          <div className="prompt-choice-grid" aria-label="Voice prompt choices">
+            {RECORDING_PROMPTS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={selectedPromptId === option.id ? "prompt-choice active" : "prompt-choice"}
+                onClick={() => {
+                  setSelectedPromptId(option.id);
+                  setVoicePrompt(option.prompt);
+                }}
+              >
+                <strong>{option.label}</strong>
+                <span>{option.prompt}</span>
+              </button>
+            ))}
+          </div>
+          <label className="field-stack">
+            <span>{selectedPromptId === "custom" ? "Custom recording prompt" : "Selected recording prompt"}</span>
+            <textarea
+              className="field-control voice-prompt"
+              value={voicePrompt}
+              onChange={(event) => {
+                setVoicePrompt(event.target.value);
+                setSelectedPromptId("custom");
+              }}
+            />
+          </label>
           {voiceUrl ? <audio controls src={voiceUrl} style={{ width: "100%" }} /> : <div className="empty-strip">No voice sample recorded yet.</div>}
+          {(voiceTranscript || slangExamples.length > 0) && (
+            <div className="lingo-panel">
+              {voiceTranscript && (
+                <p>
+                  <strong>Transcript:</strong> {voiceTranscript}
+                </p>
+              )}
+              <div className="tag-list">
+                {slangExamples.map((phrase) => (
+                  <span className="tag" key={phrase}>{phrase}</span>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="control-grid">

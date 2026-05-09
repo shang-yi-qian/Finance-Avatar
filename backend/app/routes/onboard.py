@@ -2,6 +2,10 @@ from fastapi import APIRouter, UploadFile, File, Form
 from typing import Optional
 import json
 
+from app.services.elevenlabs_service import clone_voice_once
+from app.services.gpt_image_service import generate_avatar_variants
+from app.services.voice_profile_service import extract_lingo_profile, transcribe_voice_sample
+
 router = APIRouter()
 
 
@@ -11,15 +15,36 @@ async def onboard(
     voice_recording: Optional[UploadFile] = File(None),
     quiz_answers: str = Form("{}"),
 ):
-    # Phase 4: call gpt_image_service + elevenlabs_service + save to Convex
     answers = json.loads(quiz_answers)
+    user_id = answers.get("user_id", "live_demo_user")
+    voice_prompt = answers.get("voice_prompt", "")
+
+    selfie_bytes = await selfie.read() if selfie else None
+    voice_bytes = await voice_recording.read() if voice_recording else None
+
+    transcript = await transcribe_voice_sample(
+        voice_bytes,
+        voice_recording.filename if voice_recording else "voice.webm",
+    )
+    lingo_profile = await extract_lingo_profile(transcript, voice_prompt)
+    avatar_variants = await generate_avatar_variants(
+        user_id=user_id,
+        selfie_bytes=selfie_bytes,
+        selfie_filename=selfie.filename if selfie else "selfie.png",
+        answers=answers,
+        lingo=lingo_profile,
+    )
+    voice_id = await clone_voice_once(
+        user_id,
+        voice_bytes,
+        voice_recording.filename if voice_recording else "voice.webm",
+    )
+
     return {
         "status": "ok",
-        "user_id": answers.get("user_id", "kai_demo"),
-        "avatar_variants": [
-            "https://placehold.co/1024x1024/1a1a2e/ffffff?text=Avatar+1",
-            "https://placehold.co/1024x1024/16213e/ffffff?text=Avatar+2",
-            "https://placehold.co/1024x1024/0f3460/ffffff?text=Avatar+3",
-        ],
-        "voice_id": "mock_voice_id",
+        "user_id": user_id,
+        "avatar_variants": avatar_variants,
+        "voice_id": voice_id,
+        "voice_transcript": transcript,
+        "style_profile_patch": lingo_profile,
     }

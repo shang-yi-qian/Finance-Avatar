@@ -32,6 +32,11 @@ export const upsertUser = mutation({
     horizon: v.optional(v.string()),
     experience: v.optional(v.string()),
     thematicInterests: v.optional(v.array(v.string())),
+    voicePrompt: v.optional(v.string()),
+    voiceTranscript: v.optional(v.string()),
+    slangExamples: v.optional(v.array(v.string())),
+    preferredPhrases: v.optional(v.array(v.string())),
+    toneFormality: v.optional(v.number()),
     styleProfileSummary: v.string(),
   },
   handler: async (ctx, args) => {
