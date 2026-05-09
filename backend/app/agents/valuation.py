@@ -80,6 +80,24 @@ _FALLBACK_VALUATIONS: dict[str, ValuationResult] = {
             valuation="Valuation is not cheap, but quality and earnings consistency help support it.",
         ),
     },
+    "SMR": {
+        "price": None,
+        "pe_trailing": None,
+        "pe_forward": None,
+        "eps": None,
+        "market_cap": None,
+        "beta": 1.85,
+        "consensus": "hold",
+        "momentum_3m": 0.0,
+        "sector_tags": ["nuclear power", "energy", "clean energy", "small modular reactors"],
+        **_report_context(
+            analyst="Analyst setup is mixed: SMR offers nuclear optionality, but commercialization timing is still uncertain.",
+            earnings="Recent earnings context is early-stage and milestone-driven, so cash burn and project timing matter.",
+            quality="Quality profile is speculative because the business depends on execution, regulatory progress, and customer adoption.",
+            peers=["BWXT", "CEG", "OKLO"],
+            valuation="Valuation is driven more by future nuclear power optionality than current earnings.",
+        ),
+    },
     "BTC": {
         "price": 65000.0,
         "pe_trailing": None,
@@ -152,6 +170,26 @@ def _normalize_valuation(raw: Any, ticker: str) -> ValuationResult:
     return result
 
 
+def _enrich_with_fallback(live: ValuationResult, fallback: ValuationResult) -> ValuationResult:
+    """Fill gaps in a live Shibui row without replacing live prices/market data."""
+    if not fallback:
+        return live
+    enriched = dict(live)
+    for key, value in fallback.items():
+        if key == "sector_tags":
+            current = enriched.get("sector_tags") if isinstance(enriched.get("sector_tags"), list) else []
+            extra = value if isinstance(value, list) else []
+            seen = {str(tag).lower() for tag in current}
+            enriched["sector_tags"] = current + [tag for tag in extra if str(tag).lower() not in seen]
+        elif key in {"analyst_context", "earnings_context", "quality_context", "peer_context"}:
+            current = enriched.get(key) if isinstance(enriched.get(key), dict) else {}
+            if not current and isinstance(value, dict):
+                enriched[key] = value
+        elif enriched.get(key) in (None, "", [], {}, "unknown"):
+            enriched[key] = value
+    return enriched
+
+
 async def run_valuation(ticker: str) -> ValuationResult:
     normalized_ticker = ticker.upper().strip()
     fallback = _FALLBACK_VALUATIONS.get(normalized_ticker, _default_valuation(normalized_ticker))
@@ -170,4 +208,4 @@ async def run_valuation(ticker: str) -> ValuationResult:
     if not raw:
         return fallback
 
-    return _normalize_valuation(raw, normalized_ticker)
+    return _enrich_with_fallback(_normalize_valuation(raw, normalized_ticker), fallback)

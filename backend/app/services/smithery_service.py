@@ -656,18 +656,36 @@ async def get_fundamentals(ticker: str) -> dict[str, Any]:
     if cached and now - cached[0] < _CACHE_TTL_SECONDS:
         return cached[1]
 
+    # Demo-safe default: trust Shibui/Smithery as the primary valuation source.
+    # The FMP Smithery connectors currently fail token injection, and direct FMP
+    # can rate-limit during demos. Do not call those paths unless explicitly
+    # requested via ENABLE_FMP_ENRICHMENT=1.
+    shibui_result: dict[str, Any] = {}
     try:
         shibui_result = await _fetch_shibui_fundamentals(normalized_ticker)
     except (SmitheryServiceError, httpx.HTTPStatusError, httpx.RequestError):
         shibui_result = {}
 
-    try:
-        fmp_result = await _fetch_fundamentals(normalized_ticker)
-    except (SmitheryServiceError, httpx.HTTPStatusError, httpx.RequestError):
-        # FMP Smithery connectors currently expose tools but do not pass FMP_ACCESS_TOKEN.
-        fmp_result = await _fetch_direct_fmp_fundamentals(normalized_ticker)
+    fmp_result: dict[str, Any] = {}
+    if os.getenv("ENABLE_FMP_ENRICHMENT") == "1":
+        try:
+            fmp_result = await _fetch_fundamentals(normalized_ticker)
+        except (SmitheryServiceError, httpx.HTTPStatusError, httpx.RequestError):
+            try:
+                fmp_result = await _fetch_direct_fmp_fundamentals(normalized_ticker)
+            except (SmitheryServiceError, httpx.HTTPStatusError, httpx.RequestError):
+                fmp_result = {}
 
-    result = _merge_valuation(shibui_result, fmp_result) if shibui_result else fmp_result
+    if shibui_result and fmp_result:
+        result = _merge_valuation(shibui_result, fmp_result)
+    elif shibui_result:
+        result = shibui_result
+    elif fmp_result:
+        result = fmp_result
+    else:
+        # Last-resort behavior when Shibui has no row for a ticker and FMP
+        # enrichment is disabled/unavailable.
+        result = await _fetch_direct_fmp_fundamentals(normalized_ticker)
 
     _cache[normalized_ticker] = (now, result)
     return result
