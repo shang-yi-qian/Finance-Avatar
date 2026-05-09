@@ -58,9 +58,9 @@ Convex (convex/)                  External APIs
 | Phase | What | Status |
 |-------|------|--------|
 | 1 | Skeleton — mock routes, Convex schema, routing, PitchCard, TickerInput | ✅ Done |
-| 2 | Real agent loop — orchestrator + research, valuation, fit score, synthesis | ✅ Done — backend pipeline works; Smithery (Shibui) is primary, direct FMP enriches/falls back |
+| 2 | Real agent loop — orchestrator + Exa research, Smithery/FMP valuation, fit score, synthesis | ✅ Done — `/pitch` returns real Exa news context + real Smithery/FMP valuation context |
 | 3 | Personalization — Adaption-style profile store, POST /feedback rules, FeedbackButtons, StyleProfilePanel live | ✅ Done — 👎 → simpler pitch loop verified end-to-end |
-| 4 | Avatar pipeline — OnboardingFlow, GPT Image 2, ElevenLabs clone+TTS, AvatarViewport | ⬜ |
+| 4 | Avatar pipeline — OnboardingFlow, GPT Image avatar variants, ElevenLabs clone+TTS, AvatarViewport | 🟡 In progress — code exists, needs QA/fix pass |
 | 5 | Realtime voice + polish — GPT Realtime 2 WS proxy, share button, pre-seed kai_demo | ⬜ |
 
 ---
@@ -73,12 +73,26 @@ Goal: replace mock routes with real agent calls. Checkpoint: NVDA returns real n
 
 **Implemented locally and tested:**
 - `backend/app/agents/orchestrator.py` calls `research → valuation → fit_score → synthesis`.
-- `backend/app/agents/research.py` exists with deterministic fallback research. It will use `app.services.exa_service.search(ticker, days=7)` once that service exists.
+- `backend/app/agents/research.py` uses `app.services.exa_service.search(ticker, days=7)` when `EXA_API_KEY` is present, with deterministic fallback research if Exa is missing/unreachable.
+- `backend/app/services/exa_service.py` does two Exa neural searches per ticker (`stock news analyst commentary` + `earnings results guidance`) restricted to the last 7 days, requests highlights/text, filters out results that do not mention the ticker, classifies the corpus into `news_summary`, `earnings_sentiment`, `analyst_tone`, and `conviction_signal`, and returns up to 5 source links.
 - `backend/app/agents/valuation.py` exists with fallback valuation data and calls `app.services.smithery_service.get_fundamentals(ticker)` when available.
 - `backend/app/agents/fit_score.py` computes the weighted score deterministically.
 - `backend/app/agents/synthesis.py` creates the spoken pitch and now consumes richer valuation/report context when present.
 - `backend/app/routes/pitch.py` now calls `run_orchestrator(...)` instead of returning the old `MOCK_PITCH`.
-- `/pitch` smoke test passes for NVDA/TSLA with fallback data.
+- `/pitch` smoke test passes with live Exa news context + Smithery/FMP valuation context.
+
+**Current Exa status — 2026-05-09:**
+- `EXA_API_KEY` is present in `.env`; `exa-py` is in `backend/requirements.txt`, but the service uses direct `httpx` calls to `https://api.exa.ai/search` for predictable request shape.
+- Cache: module-level `_cache: dict[str, tuple[float, dict]]` with 5-minute TTL, keyed by `ticker:days`. NVDA/TSLA will not re-call Exa on every demo run.
+- Query strategy: two parallel neural searches per ticker:
+  - `{TICKER} stock news analyst commentary {year}`
+  - `{TICKER} earnings results guidance margins demand`
+- Result safety: dedupe by URL and require actual ticker mention in title/text/highlights. Fake/typo tickers fall back instead of summarizing unrelated articles.
+- Classifier: OpenAI `gpt-4o-mini` converts Exa highlights into one short `news_summary`, `earnings_sentiment`, `analyst_tone`, and `conviction_signal`. If OpenAI fails, a keyword heuristic still returns usable output.
+- Verified examples:
+  - TSLA returns 5 Exa sources and summary like: "Tesla's stock is facing challenges despite a strong Q1 earnings beat, with concerns over declining auto sales and increased capital expenditures impacting investor sentiment."
+  - NVDA returns 5 Exa sources and bullish AI/earnings context.
+  - Fake ticker `ZZZZZ_FAKE_999` falls back safely with `sources=[]`.
 
 **Smithery integration code added locally:**
 - `backend/app/services/smithery_service.py` calls Smithery Connect API from `.env`.
@@ -258,6 +272,26 @@ runs locally so it is deterministic and instant on stage.
 ---
 
 ## Phase 4 — Avatar Pipeline (Dev B primary)
+
+### Current Phase 4 Status — 2026-05-09
+
+Partner pushed an initial avatar/onboarding pipeline in commit `800326a`.
+Code exists, but it has **not** had the same QA/fix pass as Phases 2-3.
+
+Implemented pieces:
+- `frontend/src/pages/Onboarding.tsx` has the multi-step onboarding UI and calls `POST /onboard`.
+- `backend/app/routes/onboard.py` accepts multipart selfie + voice + quiz JSON.
+- `backend/app/services/gpt_image_service.py` calls OpenAI image generation and falls back to placeholder avatar URLs when unavailable.
+- `backend/app/services/elevenlabs_service.py` clones voice once, caches voice IDs locally under generated metadata, and generates pitch audio when a real voice ID exists. Mock voice IDs return `audio_url=None`.
+- `backend/app/services/voice_profile_service.py` transcribes/analyzes voice sample into lingo fields (`slangExamples`, `preferredPhrases`, `toneFormality`).
+- `backend/app/agents/orchestrator.py` now calls `generate_speech(...)` after synthesis, so `/pitch` may return an `audio_url` if onboarding produced a real voice ID.
+
+Known issues / why it may "not really work" yet:
+- Avatar generation depends on `OPENAI_API_KEY` and model/API support for image edits. If it fails, placeholders are returned.
+- ElevenLabs clone/TTS depends on a real, valid audio sample and `ELEVENLABS_API_KEY`. If clone fails or returns a mock voice ID, pitches will not have audio.
+- Generated files are served from `backend/app/generated/...` via `storage_service.py` public URLs, but confirm FastAPI static file serving is registered before relying on those URLs in the frontend.
+- Convex schema was touched by Phase 4 despite earlier "locked" warning; verify Convex deploy/dev generation before demo.
+- No lipsync video path is implemented yet; static avatar + optional audio is the realistic fallback.
 
 ### Onboarding flow (`frontend/src/pages/Onboarding.tsx`)
 1. Selfie upload: `<input type="file" accept="image/*">` → preview

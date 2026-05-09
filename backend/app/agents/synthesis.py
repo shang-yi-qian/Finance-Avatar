@@ -341,8 +341,15 @@ async def synthesize_pitch(
     conviction_reason = _shorten_reason(fit_score.breakdown["conviction"].reason, tier)
 
     news_summary = str(research.get("news_summary", "")).strip()
-    if len(news_summary) > 150:
-        news_summary = news_summary[:147].rstrip() + "..."
+    if len(news_summary) > 240:
+        # Trim at the last sentence boundary inside the budget so we don't
+        # cut a live Exa summary mid-clause.
+        clipped = news_summary[:240]
+        boundary = max(clipped.rfind("."), clipped.rfind(";"))
+        if boundary >= 120:
+            news_summary = clipped[: boundary + 1]
+        else:
+            news_summary = clipped.rstrip(",;:- ") + "..."
 
     consensus_phrase = _consensus_phrase(valuation.get("consensus"), tier, flagged)
     portfolio_context = _portfolio_context(ticker, profile, tier)
