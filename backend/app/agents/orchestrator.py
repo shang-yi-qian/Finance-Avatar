@@ -38,49 +38,12 @@ def _recommendation(total: float) -> str:
     return "Skip for now"
 
 
-def _portfolio_sector_mix(profile: dict) -> set[str]:
-    portfolio = profile.get("portfolio") or []
-    tickers = {
-        str(h.get("ticker", "")).upper()
-        for h in portfolio
-        if isinstance(h, dict) and h.get("ticker")
-    }
-    tags: set[str] = set()
-    if {"NVDA", "AMD", "AVGO", "TSM"} & tickers:
-        tags.update({"semiconductors", "AI infrastructure"})
-    if {"MSFT", "GOOGL", "GOOG", "AMZN", "ORCL", "NET"} & tickers:
-        tags.update({"cloud", "enterprise software"})
-    if {"AAPL", "TSLA", "NFLX", "META", "WMT"} & tickers:
-        tags.update({"consumer tech"})
-    if {"BTC", "ETH", "COIN", "MSTR"} & tickers:
-        tags.add("crypto")
-    if {"XOM", "CVX", "CEG", "NEE", "SMR", "OKLO"} & tickers:
-        tags.add("energy")
-    return tags
-
-
-def _diversification_note(ticker: str, profile: dict, valuation: dict) -> str | None:
-    tags = {str(tag).lower() for tag in valuation.get("sector_tags") or []}
-    if not tags:
-        return None
-    owned_tags = _portfolio_sector_mix(profile)
-    new_tags = sorted(tags - owned_tags)
-    if not new_tags:
-        return f"{ticker} overlaps with themes already in the portfolio, so this is more of a tilt than a diversifier."
-    return (
-        f"{ticker} adds exposure to {', '.join(new_tags[:3])}, which diversifies the portfolio beyond "
-        f"{', '.join(sorted(owned_tags)[:4]) or 'the current holdings'}."
-    )
-
-
-def _portfolio_context(ticker: str, profile: dict, valuation: dict) -> PortfolioContext:
-    diversification = _diversification_note(ticker, profile, valuation)
+def _portfolio_context(ticker: str, profile: dict) -> PortfolioContext:
     portfolio = profile.get("portfolio") or []
     if not isinstance(portfolio, list):
         return PortfolioContext(
             status="new",
             summary="No portfolio snapshot was provided, so this is treated as a new idea.",
-            diversification_note=diversification,
         )
 
     for holding in portfolio:
@@ -102,7 +65,6 @@ def _portfolio_context(ticker: str, profile: dict, valuation: dict) -> Portfolio
             summary=f"You already own {ticker}; it is about {weight * 100:.0f}% of the portfolio snapshot.",
             current_weight=weight,
             avg_cost=avg_cost_num,
-            diversification_note=diversification,
         )
 
     tickers = [str(h.get("ticker", "")).upper() for h in portfolio if isinstance(h, dict)]
@@ -111,7 +73,6 @@ def _portfolio_context(ticker: str, profile: dict, valuation: dict) -> Portfolio
     return PortfolioContext(
         status="new",
         summary=f"{ticker} would be a new position against the current portfolio.{suffix}",
-        diversification_note=diversification,
     )
 
 
@@ -167,7 +128,7 @@ def _build_report(
     total = fit_score.total
     recommendation = _recommendation(total)
     snapshot = _valuation_snapshot(valuation)
-    portfolio = _portfolio_context(ticker, profile, valuation)
+    portfolio = _portfolio_context(ticker, profile)
     breakdown = fit_score.breakdown
     risk = breakdown["risk_fit"]
     style = breakdown["style_fit"]
@@ -183,8 +144,6 @@ def _build_report(
         f"Portfolio: {portfolio.summary}",
         f"Valuation: consensus is {snapshot['consensus']}; beta is {snapshot['beta']}; analyst target is {snapshot['analyst_target'] or 'unknown'}.",
     ]
-    if portfolio.diversification_note:
-        key_takeaways.insert(2, f"Diversification: {portfolio.diversification_note}")
     if snapshot["sector_tags"]:
         key_takeaways.append(f"Themes detected: {', '.join(snapshot['sector_tags'][:5])}.")
 
@@ -208,7 +167,6 @@ def _build_report(
         analyst_tone=str(research.get("analyst_tone") or "neutral"),
         valuation_snapshot=snapshot,
         portfolio_context=portfolio,
-        diversification_note=portfolio.diversification_note,
         key_takeaways=key_takeaways[:5],
         risks=risks[:4],
         sources=_report_sources(research),

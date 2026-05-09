@@ -67,18 +67,8 @@ async def clone_voice_once(user_id: str, audio_bytes: Optional[bytes], filename:
 
 
 async def generate_speech(text: str, voice_id: Optional[str], user_id: str, ticker: str) -> Optional[str]:
-    fallback_voice = (
-        os.getenv("ELEVENLABS_FALLBACK_VOICE_ID")
-        or os.getenv("ELEVENLABS_DEFAULT_VOICE_ID")
-        or "21m00Tcm4TlvDq8ikWAM"  # ElevenLabs Rachel default voice ID.
-    )
-    selected_voice = voice_id
-    if (
-        not selected_voice
-        or selected_voice.startswith("mock_voice_")
-        or selected_voice in {"pending_voice", "mock", "none"}
-    ):
-        selected_voice = fallback_voice
+    if not voice_id or voice_id.startswith("mock_voice_"):
+        return None
 
     client = _client()
     if client is None:
@@ -87,7 +77,7 @@ async def generate_speech(text: str, voice_id: Optional[str], user_id: str, tick
     try:
         audio = client.generate(
             text=text,
-            voice=selected_voice,
+            voice=voice_id,
             model=os.getenv("ELEVENLABS_TTS_MODEL", "eleven_multilingual_v2"),
         )
         chunks = b"".join(chunk for chunk in audio)

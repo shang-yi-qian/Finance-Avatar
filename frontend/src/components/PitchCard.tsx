@@ -100,9 +100,6 @@ export default function PitchCard({ pitch }: Props) {
               <strong>{report.portfolio_context.status}</strong>
             </div>
             <p>{report.portfolio_context.summary}</p>
-            {report.diversification_note && (
-              <p className="diversification-note">{report.diversification_note}</p>
-            )}
           </section>
 
           <section className="report-section">
