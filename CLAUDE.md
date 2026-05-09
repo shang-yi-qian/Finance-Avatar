@@ -58,8 +58,8 @@ Convex (convex/)                  External APIs
 | Phase | What | Status |
 |-------|------|--------|
 | 1 | Skeleton — mock routes, Convex schema, routing, PitchCard, TickerInput | ✅ Done |
-| 2 | Real agent loop — orchestrator + research, valuation, fit score, synthesis | 🟡 In progress — backend pipeline works; valuation now pulls real FMP stable API data when Smithery cannot pass FMP token |
-| 3 | Personalization — Adaption service, POST /feedback, FeedbackButtons, StyleProfilePanel live | ⬜ |
+| 2 | Real agent loop — orchestrator + research, valuation, fit score, synthesis | ✅ Done — backend pipeline works; Smithery (Shibui) is primary, direct FMP enriches/falls back |
+| 3 | Personalization — Adaption-style profile store, POST /feedback rules, FeedbackButtons, StyleProfilePanel live | ✅ Done — 👎 → simpler pitch loop verified end-to-end |
 | 4 | Avatar pipeline — OnboardingFlow, GPT Image 2, ElevenLabs clone+TTS, AvatarViewport | ⬜ |
 | 5 | Realtime voice + polish — GPT Realtime 2 WS proxy, share button, pre-seed kai_demo | ⬜ |
 
@@ -167,53 +167,93 @@ async def pitch(req: PitchRequest):
 
 ---
 
-## Phase 3 — Personalization Loop (both devs)
+## Phase 3 — Personalization Loop ✅ Done
 
-**The most important phase for demo day.**
+**The most important phase for demo day.** Demo beat verified locally end-to-end.
 
-### Dev A
+### What is implemented
 
-**`backend/app/services/adaption_service.py`**
-```python
-class AdaptionService:
-    BASE = "https://api.adaption.ai"  # confirm URL from Adaption docs
+**Backend**
+- `backend/app/services/profile_store.py` — in-memory style-profile store keyed
+  by `user_id`, plus a 1h TTL cache of `pitch_id → spoken_text`. The store is
+  the source of truth during a session and is the place a future Convex / DB
+  sync would plug into.
+- `backend/app/services/adaption_service.py` — owns the deterministic feedback
+  rule engine and a best-effort outbound POST to Adaption (`api.adaptionlabs.ai`)
+  that is fired-and-forgotten so the demo loop is never blocked.
+  - `too_jargony`  → `jargon_tolerance.level -= 0.08` (floor `0.10`),
+    extracts jargon terms from the cached pitch transcript and appends to
+    `unknown_or_flagged`. Drops to `explanation_depth = "plain_english"` when
+    level falls to ≤ 0.45.
+  - `too_basic`    → `jargon_tolerance.level += 0.08` (ceiling `1.0`),
+    elevates to `explanation_depth = "deep"` at ≥ 0.7.
+  - `nailed_it`    → appends a positive-reinforcement entry to
+    `feedback_history`.
+- `backend/app/routes/feedback.py` — returns the new `FeedbackResponse` with
+  the updated `ProfileResponse`, the `flagged_terms_added`, and the
+  `jargon_level_delta` so the frontend can re-render the panel without a
+  separate `GET /profile/...` round-trip.
+- `backend/app/routes/profile.py` — now reads from `adaption_service`
+  (live store) instead of a hardcoded `KAI_DEMO_PROFILE`. The constant is
+  retained as a fallback only.
+- `backend/app/routes/pitch.py` — merges the frontend's profile snapshot
+  with any server-side personalization state (flagged terms, lowered jargon
+  level, history) before calling the orchestrator, then remembers the
+  generated `spoken_text` by `pitch_id`.
+- `backend/app/agents/synthesis.py` — three jargon tiers
+  (`technical` ≥ 0.7, `medium`, `simple` < 0.45). Phrasing for verdict,
+  consensus, portfolio context, analyst targets and report context all swap
+  per tier. A `_PLAIN_REPLACEMENTS` table forces plain-English equivalents
+  for any term in `unknown_or_flagged`. A short `_CONSENSUS_FLAG_TRIGGERS`
+  set drops the consensus phrasing to the simple tier whenever any
+  consensus-flavoured term has been flagged, which keeps the rewrite
+  grammatical mid-tier.
 
-    async def get_profile(self, user_id: str) -> dict:
-        # GET /profiles/{user_id}  with ADAPTION_API_KEY
+**Frontend**
+- `frontend/src/lib/userProfile.ts` — `LiveUserProfile` now carries
+  `flaggedTerms` and `explanationDepth`; `toBackendProfile()` propagates
+  them. New `applyBackendProfileToLocal()` merges a backend feedback
+  response into the local profile.
+- `frontend/src/lib/api.ts` — `postFeedback()` returns `FeedbackResponse`
+  containing the updated profile, flagged-terms delta, and jargon delta.
+- `frontend/src/components/FeedbackButtons.tsx` — renders the live status
+  message ("Style updated: jargon -8%, avoiding buy rating, analyst lean")
+  and forwards the typed response upward.
+- `frontend/src/pages/Dashboard.tsx` — on feedback, merges the response into
+  `localStorage` via `applyBackendProfileToLocal` + `saveUserProfile`, sets
+  active profile, and bumps `profileRefresh` so `StyleProfilePanel`
+  re-renders with the lowered jargon gauge and the new flagged-term tags.
 
-    async def update_profile(self, user_id: str, patch: dict) -> dict:
-        # PATCH /profiles/{user_id}
-```
+### Verified demo loop (NVDA, fallback path)
 
-**`backend/app/routes/feedback.py`** — apply update rules:
-```python
-# too_jargony  → jargon_tolerance.level -= 0.08 (floor 0.1)
-#               → add offending terms to unknown_or_flagged
-# too_basic    → jargon_tolerance.level += 0.08 (ceiling 1.0)
-# nailed_it    → append to feedback_history
-```
+1. First pitch (jargon = 0.55, no flags):
+   `"On the analyst side, the analyst lean is a buy rating, …"`
+2. 👎 Too jargon-y → response: `flagged_terms_added=["buy rating", "analyst lean"]`,
+   `jargon_level_delta=-0.08`.
+3. Second pitch (jargon = 0.47, flags applied):
+   `"On the analyst side, analysts mostly say this looks like a thumbs up, …"`
+4. Second 👎 → jargon = 0.39, `explanation_depth=plain_english`.
+5. Third pitch (simple tier):
+   `"lowkey a really good match for you. You don't own any of this yet. The big reason is fit: … On the analyst side, analysts mostly say this looks like a thumbs up, … The thing to watch out for is risk: …"`
 
-**Inject style profile into subagents:**
-Every subagent system prompt prepends (already templated in `synthesis.md`):
-```
-You are speaking to a user with the following profile:
-- Formality: {formality}
-- Jargon tolerance: {jargon_level} — avoid: {unknown_or_flagged}
-- Tone style: {slang_examples}
-- Preferred framing: {preferred_framing}
-- Explanation depth: {explanation_depth}
-Write your output exactly in this voice.
-```
+`too_basic` and `nailed_it` are also wired and verified.
 
-### Dev B
+### Adaption integration note
 
-**`StyleProfilePanel.tsx`** (already scaffolded in `frontend/src/components/`)
-- Currently fetches from `GET /profile/{userId}` on mount + after feedback
-- Phase 3: switch to Convex live subscription once backend updates `styleProfileSummary` on Convex users table after each feedback
+Adaption Labs' public API (`api.adaptionlabs.ai`) is currently a *dataset*
+adaptation product, not a hosted user-profile store. We use `ADAPTION_API_KEY`
+for a best-effort outbound POST per feedback event so the demo can narrate
+"we feed every signal back into Adaption". The personalization loop itself
+runs locally so it is deterministic and instant on stage.
 
-**`FeedbackButtons.tsx`** (already scaffolded)
-- Already wired to `POST /feedback`
-- Pass `refreshKey` up to Dashboard → into StyleProfilePanel to trigger re-fetch
+### Open items (low priority for the demo)
+
+- Mirror the live profile to Convex `users.styleProfileSummary` on each
+  feedback event so the panel could swap to a live Convex subscription
+  later. Today the panel reads `localStorage` after feedback, which is
+  enough for the demo beat.
+- Wire the `feedback` Convex table from `frontend/convex/feedback.ts` so
+  events persist beyond a single backend process.
 
 ---
 

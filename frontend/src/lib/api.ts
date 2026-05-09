@@ -47,17 +47,34 @@ export async function postPitch(
   return res.json();
 }
 
+export interface FeedbackResponse {
+  status: string;
+  signal: "too_jargony" | "too_basic" | "nailed_it";
+  pitch_id: string;
+  profile: ProfileResponse;
+  flagged_terms_added: string[];
+  jargon_level_delta: number;
+}
+
 export async function postFeedback(
   pitchId: string,
   userId: string,
-  signal: "too_jargony" | "too_basic" | "nailed_it"
-): Promise<void> {
+  signal: "too_jargony" | "too_basic" | "nailed_it",
+  options: { ticker?: string; profile?: Record<string, unknown> } = {}
+): Promise<FeedbackResponse> {
   const res = await fetch(`${BASE}/feedback`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pitch_id: pitchId, user_id: userId, signal }),
+    body: JSON.stringify({
+      pitch_id: pitchId,
+      user_id: userId,
+      signal,
+      ticker: options.ticker,
+      profile: options.profile,
+    }),
   });
   if (!res.ok) throw new Error(`/feedback failed: ${res.status}`);
+  return res.json();
 }
 
 export async function getProfile(userId: string): Promise<ProfileResponse> {
@@ -73,10 +90,11 @@ export function profileToPanelProfile(profile: LiveUserProfile): ProfileResponse
     jargon_tolerance: {
       level: profile.jargonLevel,
       known_terms: ["P/E", "EPS", "beta", "market cap"],
-      unknown_or_flagged: [],
+      unknown_or_flagged: profile.flaggedTerms ?? [],
     },
     risk_language: { tolerance: profile.riskTolerance, preferred_framing: "upside_first" },
-    explanation_depth: profile.jargonLevel < 0.45 ? "plain_english" : "medium",
+    explanation_depth:
+      profile.explanationDepth ?? (profile.jargonLevel < 0.45 ? "plain_english" : "medium"),
     thematic_interests: profile.thematicInterests,
     horizon: profile.horizon,
     feedback_history: [],

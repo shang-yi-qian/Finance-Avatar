@@ -12,6 +12,17 @@ class FeedbackRequest(BaseModel):
     pitch_id: str
     user_id: str
     signal: Literal["too_jargony", "too_basic", "nailed_it"]
+    profile: Optional[dict[str, Any]] = None
+    ticker: Optional[str] = None
+
+
+class FeedbackResponse(BaseModel):
+    status: str
+    signal: str
+    pitch_id: str
+    profile: "ProfileResponse"
+    flagged_terms_added: list[str] = []
+    jargon_level_delta: float = 0.0
 
 
 class OnboardRequest(BaseModel):
@@ -52,3 +63,6 @@ class ProfileResponse(BaseModel):
     thematic_interests: list[str]
     horizon: str
     feedback_history: list
+
+
+FeedbackResponse.model_rebuild()

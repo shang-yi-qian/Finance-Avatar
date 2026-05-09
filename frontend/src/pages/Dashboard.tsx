@@ -7,8 +7,14 @@ import AvatarViewport from "../components/AvatarViewport";
 import FeedbackButtons from "../components/FeedbackButtons";
 import StyleProfilePanel from "../components/StyleProfilePanel";
 import RealtimeVoiceToggle from "../components/RealtimeVoiceToggle";
-import { postPitch, type PitchResponse } from "../lib/api";
-import { loadUserProfile, SELECTED_AVATAR_KEY, toBackendProfile } from "../lib/userProfile";
+import { postPitch, type FeedbackResponse, type PitchResponse } from "../lib/api";
+import {
+  applyBackendProfileToLocal,
+  loadUserProfile,
+  saveUserProfile,
+  SELECTED_AVATAR_KEY,
+  toBackendProfile,
+} from "../lib/userProfile";
 
 export default function Dashboard() {
   const [activeProfile, setActiveProfile] = useState(() => loadUserProfile());
@@ -36,7 +42,11 @@ export default function Dashboard() {
     }
   }
 
-  function handleFeedback() {
+  function handleFeedback(_signal: string, response: FeedbackResponse) {
+    const latestProfile = loadUserProfile();
+    const updated = applyBackendProfileToLocal(latestProfile, response.profile);
+    saveUserProfile(updated);
+    setActiveProfile(updated);
     setProfileRefresh((n) => n + 1);
   }
 
@@ -85,7 +95,9 @@ export default function Dashboard() {
             <PitchCard pitch={pitch} />
             <FeedbackButtons
               pitchId={pitch.pitch_id}
+              ticker={pitch.ticker}
               userId={activeProfile.userId}
+              profileSnapshot={toBackendProfile(activeProfile)}
               onFeedback={handleFeedback}
             />
           </>
