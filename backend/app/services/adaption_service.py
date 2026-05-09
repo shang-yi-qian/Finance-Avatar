@@ -109,6 +109,14 @@ def _build_history_entry(
     }
 
 
+def _depth_for_level(level: float) -> str:
+    if level <= 0.45:
+        return "plain_english"
+    if level >= 0.7:
+        return "deep"
+    return "medium"
+
+
 def _apply_rules(
     profile: dict[str, Any],
     *,
@@ -141,21 +149,19 @@ def _apply_rules(
         jargon["known_terms"] = [t for t in known if t not in flagged_now]
         jargon["unknown_or_flagged"] = flagged_now
 
-        # Bias explanation depth toward plain English when the user pushes back twice.
-        if jargon["level"] <= 0.45:
-            updated["explanation_depth"] = "plain_english"
-
     elif signal == "too_basic":
         new_level = min(JARGON_CEILING, current_level + JARGON_STEP)
         delta = _round(new_level - current_level)
         jargon["level"] = _round(new_level)
 
-        if jargon["level"] >= 0.7:
-            updated["explanation_depth"] = "deep"
-
     elif signal == "nailed_it":
         # No level change, but this counts as positive reinforcement.
         delta = 0.0
+
+    # Keep explanation depth derived from the current level so it never
+    # gets stuck (e.g. lingering on plain_english after the user pushes back
+    # up via too_basic).
+    updated["explanation_depth"] = _depth_for_level(float(jargon["level"]))
 
     return updated, added, delta
 

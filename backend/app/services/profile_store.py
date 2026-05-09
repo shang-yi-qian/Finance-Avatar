@@ -57,8 +57,12 @@ def get_profile(user_id: str) -> dict[str, Any]:
 def upsert_profile(user_id: str, snapshot: dict[str, Any] | None) -> dict[str, Any]:
     """Merge a frontend snapshot into the stored profile.
 
-    We preserve any server-only state (e.g. ``unknown_or_flagged`` and the
-    feedback history) when the frontend sends an outdated copy.
+    Server-side personalization state (``jargon_tolerance.level``,
+    ``unknown_or_flagged``, ``explanation_depth``) wins once the user has any
+    feedback history — otherwise a stale snapshot from another tab could
+    silently undo a "Too jargon-y" click. The remaining fields (interests,
+    portfolio, tone, risk language, etc.) accept the snapshot so onboarding
+    edits flow through.
     """
 
     existing = _profiles.get(user_id) or _seed_default(user_id)
@@ -68,24 +72,36 @@ def upsert_profile(user_id: str, snapshot: dict[str, Any] | None) -> dict[str, A
         return deepcopy(existing)
 
     merged = deepcopy(existing)
+    has_feedback = bool(existing.get("feedback_history"))
 
     for key, value in snapshot.items():
-        if key in {"jargon_tolerance", "tone", "risk_language"} and isinstance(value, dict):
+        if key == "jargon_tolerance" and isinstance(value, dict):
+            base = merged.get(key, {}) or {}
+            for inner_key, inner_value in value.items():
+                if inner_value is None:
+                    continue
+                if has_feedback and inner_key in {"level", "unknown_or_flagged"}:
+                    # Server is authoritative for these once feedback has fired.
+                    continue
+                base[inner_key] = inner_value
+            merged[key] = base
+        elif key in {"tone", "risk_language"} and isinstance(value, dict):
             base = merged.get(key, {}) or {}
             base.update({k: v for k, v in value.items() if v is not None})
             merged[key] = base
+        elif key == "explanation_depth" and has_feedback:
+            continue  # server-managed once feedback exists
         elif key == "feedback_history":
-            continue  # always keep server-side history
+            continue
         elif value is not None:
             merged[key] = value
 
-    # Make sure server-side flagged terms are not erased by an empty snapshot.
+    # Always union flagged terms (server-side ones must never disappear, and
+    # any snapshot-provided terms layer on top).
     server_flagged = (existing.get("jargon_tolerance") or {}).get("unknown_or_flagged") or []
     snapshot_flagged = (snapshot.get("jargon_tolerance") or {}).get("unknown_or_flagged") or []
     merged_jt = merged.setdefault("jargon_tolerance", {})
-    merged_jt["unknown_or_flagged"] = sorted(
-        {*server_flagged, *snapshot_flagged}
-    )
+    merged_jt["unknown_or_flagged"] = sorted({*server_flagged, *snapshot_flagged})
 
     merged["user_id"] = user_id
     _profiles[user_id] = merged

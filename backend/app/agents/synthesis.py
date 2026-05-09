@@ -97,11 +97,11 @@ def _consensus_phrase(consensus: str | None, tier: str, flagged: Iterable[str]) 
         }
     else:
         labels = {
-            "buy": "a buy consensus",
-            "sell": "a sell consensus",
-            "hold": "a hold consensus",
-            "n/a": "no traditional analyst consensus",
-            "unknown": "an unclear consensus",
+            "buy": "the street consensus is a buy",
+            "sell": "the street consensus is a sell",
+            "hold": "the street consensus is a hold",
+            "n/a": "there is no traditional analyst consensus",
+            "unknown": "the analyst consensus is unclear",
         }
     return labels.get(consensus_label, labels["unknown"])
 
