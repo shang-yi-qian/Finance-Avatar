@@ -55,6 +55,7 @@ class PortfolioContext(BaseModel):
     summary: str
     current_weight: Optional[float] = None
     avg_cost: Optional[float] = None
+    diversification_note: Optional[str] = None
 
 
 class PitchReport(BaseModel):
@@ -65,6 +66,7 @@ class PitchReport(BaseModel):
     analyst_tone: str
     valuation_snapshot: dict[str, Any]
     portfolio_context: PortfolioContext
+    diversification_note: Optional[str] = None
     key_takeaways: list[str]
     risks: list[str]
     sources: list[ResearchSource] = []

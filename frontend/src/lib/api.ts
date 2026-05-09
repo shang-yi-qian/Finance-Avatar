@@ -23,6 +23,7 @@ export interface PortfolioContext {
   summary: string;
   current_weight: number | null;
   avg_cost: number | null;
+  diversification_note: string | null;
 }
 
 export interface PitchReport {
@@ -33,6 +34,7 @@ export interface PitchReport {
   analyst_tone: string;
   valuation_snapshot: Record<string, unknown>;
   portfolio_context: PortfolioContext;
+  diversification_note: string | null;
   key_takeaways: string[];
   risks: string[];
   sources: ResearchSource[];
