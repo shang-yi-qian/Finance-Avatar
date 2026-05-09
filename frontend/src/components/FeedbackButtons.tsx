@@ -8,9 +8,9 @@ interface Props {
 }
 
 const SIGNALS = [
-  { signal: "nailed_it" as const,   label: "👍 Nailed it",      color: "var(--green)" },
-  { signal: "too_jargony" as const, label: "👎 Too jargon-y",   color: "var(--red)" },
-  { signal: "too_basic" as const,   label: "👎 Too basic",       color: "var(--yellow)" },
+  { signal: "nailed_it" as const,   label: "Nailed it",      color: "var(--green)" },
+  { signal: "too_jargony" as const, label: "Too jargon-y",   color: "var(--red)" },
+  { signal: "too_basic" as const,   label: "Too basic",       color: "var(--yellow)" },
 ] as const;
 
 export default function FeedbackButtons({ pitchId, userId = "kai_demo", onFeedback }: Props) {
@@ -29,7 +29,7 @@ export default function FeedbackButtons({ pitchId, userId = "kai_demo", onFeedba
   }
 
   return (
-    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+    <div className="feedback-bar">
       {SIGNALS.map(({ signal, label, color }) => (
         <button
           key={signal}
@@ -46,8 +46,8 @@ export default function FeedbackButtons({ pitchId, userId = "kai_demo", onFeedba
         </button>
       ))}
       {sent && (
-        <span style={{ color: "var(--text-dim)", fontSize: 13, alignSelf: "center" }}>
-          Style updating…
+        <span className="feedback-note">
+          Style updating
         </span>
       )}
     </div>

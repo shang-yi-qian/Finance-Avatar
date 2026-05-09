@@ -1,3 +1,5 @@
+import type { LiveUserProfile } from "./userProfile";
+
 const BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 export interface FitScoreBreakdown {
@@ -31,11 +33,15 @@ export interface ProfileResponse {
   feedback_history: unknown[];
 }
 
-export async function postPitch(ticker: string, userId = "kai_demo"): Promise<PitchResponse> {
+export async function postPitch(
+  ticker: string,
+  userId: string,
+  profile?: Record<string, unknown>
+): Promise<PitchResponse> {
   const res = await fetch(`${BASE}/pitch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ticker, user_id: userId }),
+    body: JSON.stringify({ ticker, user_id: userId, profile }),
   });
   if (!res.ok) throw new Error(`/pitch failed: ${res.status}`);
   return res.json();
@@ -60,7 +66,25 @@ export async function getProfile(userId: string): Promise<ProfileResponse> {
   return res.json();
 }
 
+export function profileToPanelProfile(profile: LiveUserProfile): ProfileResponse {
+  return {
+    user_id: profile.userId,
+    tone: { formality: 0.25, emoji_usage: 0.35, slang_examples: ["custom", "live"] },
+    jargon_tolerance: {
+      level: profile.jargonLevel,
+      known_terms: ["P/E", "EPS", "beta", "market cap"],
+      unknown_or_flagged: [],
+    },
+    risk_language: { tolerance: profile.riskTolerance, preferred_framing: "upside_first" },
+    explanation_depth: profile.jargonLevel < 0.45 ? "plain_english" : "medium",
+    thematic_interests: profile.thematicInterests,
+    horizon: profile.horizon,
+    feedback_history: [],
+  };
+}
+
 export async function postOnboard(formData: FormData): Promise<{
+  status: string;
   user_id: string;
   avatar_variants: string[];
   voice_id: string;

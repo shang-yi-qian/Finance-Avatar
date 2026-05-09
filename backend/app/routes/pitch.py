@@ -8,5 +8,5 @@ router = APIRouter()
 
 @router.post("/pitch", response_model=PitchResponse)
 async def pitch(req: PitchRequest):
-    profile = KAI_DEMO_PROFILE.model_dump()
+    profile = req.profile or KAI_DEMO_PROFILE.model_dump()
     return await run_orchestrator(req.ticker, profile, user_id=req.user_id)

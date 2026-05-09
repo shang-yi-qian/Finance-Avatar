@@ -15,33 +15,21 @@ export default function TickerInput({ onSubmit, loading = false }: Props) {
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      style={{ display: "flex", gap: 8, marginBottom: 24 }}
-    >
+    <form onSubmit={handleSubmit} className="ticker-form">
       <input
+        className="ticker-input"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="Enter ticker — NVDA, TSLA, AAPL…"
+        placeholder="NVDA, TSLA, BTC"
         maxLength={10}
         disabled={loading}
-        style={{
-          flex: 1,
-          padding: "12px 16px",
-          background: "var(--bg-input)",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          color: "var(--text-bright)",
-          fontSize: 16,
-          outline: "none",
-        }}
       />
       <button
         type="submit"
         className="btn btn-primary"
         disabled={loading || !value.trim()}
       >
-        {loading ? "Analyzing…" : "Pitch me →"}
+        {loading ? "Analyzing" : "Pitch me"}
       </button>
     </form>
   );

@@ -1,10 +1,11 @@
 from pydantic import BaseModel
-from typing import Optional, Literal
+from typing import Any, Optional, Literal
 
 
 class PitchRequest(BaseModel):
     ticker: str
-    user_id: str = "kai_demo"
+    user_id: str = "live_demo_user"
+    profile: Optional[dict[str, Any]] = None
 
 
 class FeedbackRequest(BaseModel):

@@ -18,32 +18,19 @@ export default function AvatarViewport({
     "https://placehold.co/320x320/1a1a2e/7c3aed?text=Avatar";
 
   return (
-    <div
-      style={{
-        width: 320,
-        height: 320,
-        borderRadius: 16,
-        overflow: "hidden",
-        position: "relative",
-        background: "linear-gradient(135deg, #1a1a2e 0%, #0d0d14 100%)",
-        border: "1px solid var(--border)",
-      }}
-      className={speaking ? "avatar-glow" : ""}
-    >
+    <div className={speaking ? "avatar-viewport avatar-glow" : "avatar-viewport"}>
       {videoUrl ? (
         <video
           src={videoUrl}
           autoPlay
           loop
           playsInline
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
         />
       ) : (
         <>
           <img
             src={avatarImageUrl ?? placeholder}
             alt="Your PitchSnap avatar"
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
           {audioUrl && (
             <audio src={audioUrl} autoPlay style={{ display: "none" }} />
@@ -53,20 +40,7 @@ export default function AvatarViewport({
 
       {/* Phase 4 placeholder overlay */}
       {!avatarImageUrl && !videoUrl && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexDirection: "column",
-            gap: 8,
-            color: "var(--text-dim)",
-            fontSize: 13,
-          }}
-        >
-          <span style={{ fontSize: 32 }}>👤</span>
+        <div className="avatar-placeholder">
           <span>Complete onboarding to generate your avatar</span>
         </div>
       )}

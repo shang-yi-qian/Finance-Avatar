@@ -14,19 +14,19 @@ export default function App() {
               to="/dashboard"
               className={({ isActive }) => (isActive ? "active" : "")}
             >
-              📊 Dashboard
+              Dashboard
             </NavLink>
             <NavLink
               to="/onboarding"
               className={({ isActive }) => (isActive ? "active" : "")}
             >
-              🎭 Onboarding
+              Onboarding
             </NavLink>
             <NavLink
               to="/history"
               className={({ isActive }) => (isActive ? "active" : "")}
             >
-              🕑 History
+              History
             </NavLink>
           </nav>
         </aside>

@@ -11,7 +11,7 @@ export default function RealtimeVoiceToggle({ ticker }: Props) {
 
   return (
     <button
-      className="btn btn-ghost"
+      className="btn btn-ghost realtime-toggle"
       onClick={toggle}
       title="Toggle live voice mode (Phase 5)"
       style={{
@@ -21,10 +21,10 @@ export default function RealtimeVoiceToggle({ ticker }: Props) {
     >
       {isActive ? (
         <>
-          {isListening ? "🎤" : isSpeaking ? "🔊" : "🎧"} Live
+          {isListening ? "Listening" : isSpeaking ? "Speaking" : "Live voice"}
         </>
       ) : (
-        "🎧 Voice Mode"
+        "Voice mode"
       )}
     </button>
   );

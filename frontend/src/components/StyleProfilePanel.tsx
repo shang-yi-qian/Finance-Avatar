@@ -1,19 +1,30 @@
 import { useEffect, useState } from "react";
-import { getProfile, type ProfileResponse } from "../lib/api";
+import { useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
+import { getProfile, profileToPanelProfile, type ProfileResponse } from "../lib/api";
+import { buildStyleSummary, loadUserProfile } from "../lib/userProfile";
 
 interface Props {
   userId?: string;
   refreshKey?: number;
 }
 
-export default function StyleProfilePanel({ userId = "kai_demo", refreshKey = 0 }: Props) {
-  const [profile, setProfile] = useState<ProfileResponse | null>(null);
+export default function StyleProfilePanel({ userId, refreshKey = 0 }: Props) {
+  const localProfile = loadUserProfile();
+  const activeUserId = userId ?? localProfile.userId;
+  const [profile, setProfile] = useState<ProfileResponse | null>(() => profileToPanelProfile(localProfile));
+  const convexUser = useQuery(api.users.getUser, { userId: activeUserId });
 
   useEffect(() => {
-    getProfile(userId)
+    const latestLocalProfile = loadUserProfile();
+    if (latestLocalProfile.userId === activeUserId) {
+      setProfile(profileToPanelProfile(latestLocalProfile));
+      return;
+    }
+    getProfile(activeUserId)
       .then(setProfile)
-      .catch(console.error);
-  }, [userId, refreshKey]);
+      .catch(() => setProfile(profileToPanelProfile(latestLocalProfile)));
+  }, [activeUserId, refreshKey]);
 
   if (!profile) {
     return (
@@ -29,18 +40,18 @@ export default function StyleProfilePanel({ userId = "kai_demo", refreshKey = 0 
   const levelPct = Math.round(level * 100);
 
   return (
-    <div className="card" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <h3 style={{ fontSize: 14, color: "var(--text-dim)", fontWeight: 500, margin: 0 }}>
+    <div className="card style-panel">
+      <h3>
         Your Style Profile
       </h3>
 
       {/* Jargon tolerance */}
       <div>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-          <span style={{ fontSize: 13 }}>Jargon tolerance</span>
-          <span style={{ fontSize: 13, color: "var(--accent-light)", fontWeight: 600 }}>
+        <div className="profile-metric-header">
+          <span>Jargon tolerance</span>
+          <strong>
             {levelPct}%
-          </span>
+          </strong>
         </div>
         <div className="score-bar-track">
           <div className="score-bar-fill" style={{ width: `${levelPct}%` }} />
@@ -49,47 +60,38 @@ export default function StyleProfilePanel({ userId = "kai_demo", refreshKey = 0 
 
       {/* Slang tags */}
       <div>
-        <span style={{ fontSize: 12, color: "var(--text-dim)", display: "block", marginBottom: 6 }}>
+        <span className="profile-label">
           Tone markers
         </span>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <div className="tag-list">
           {profile.tone.slang_examples.map((tag) => (
-            <span
-              key={tag}
-              style={{
-                padding: "3px 10px",
-                borderRadius: 99,
-                background: "var(--bg-input)",
-                border: "1px solid var(--border)",
-                fontSize: 12,
-                color: "var(--accent-light)",
-              }}
-            >
+            <span className="tag" key={tag}>
               {tag}
             </span>
           ))}
         </div>
       </div>
 
+      {(convexUser?.styleProfileSummary || profile) && (
+        <div>
+          <span className="profile-label">
+            Live profile summary
+          </span>
+          <p className="profile-summary">
+            {convexUser?.styleProfileSummary || buildStyleSummary(loadUserProfile())}
+          </p>
+        </div>
+      )}
+
       {/* Flagged terms */}
       {profile.jargon_tolerance.unknown_or_flagged.length > 0 && (
         <div>
-          <span style={{ fontSize: 12, color: "var(--text-dim)", display: "block", marginBottom: 6 }}>
+          <span className="profile-label">
             Flagged terms (avoid)
           </span>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <div className="tag-list">
             {profile.jargon_tolerance.unknown_or_flagged.map((t) => (
-              <span
-                key={t}
-                style={{
-                  padding: "3px 10px",
-                  borderRadius: 99,
-                  background: "rgba(239,68,68,0.1)",
-                  border: "1px solid rgba(239,68,68,0.3)",
-                  fontSize: 12,
-                  color: "var(--red)",
-                }}
-              >
+              <span className="tag tag-danger" key={t}>
                 {t}
               </span>
             ))}

@@ -44,6 +44,28 @@ _FALLBACK_VALUATIONS: dict[str, ValuationResult] = {
         "momentum_3m": 9.0,
         "sector_tags": ["cloud", "AI infrastructure", "enterprise software"],
     },
+    "BTC": {
+        "price": 65000.0,
+        "pe_trailing": None,
+        "pe_forward": None,
+        "eps": None,
+        "market_cap": 1_280_000_000_000,
+        "beta": 1.9,
+        "consensus": "n/a",
+        "momentum_3m": 12.0,
+        "sector_tags": ["crypto", "digital assets", "macro"],
+    },
+    "ETH": {
+        "price": 3200.0,
+        "pe_trailing": None,
+        "pe_forward": None,
+        "eps": None,
+        "market_cap": 385_000_000_000,
+        "beta": 2.0,
+        "consensus": "n/a",
+        "momentum_3m": 8.0,
+        "sector_tags": ["crypto", "digital assets", "developer platform"],
+    },
 }
 
 

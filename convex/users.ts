@@ -18,8 +18,20 @@ export const upsertUser = mutation({
     avatarImageUrl: v.string(),
     voiceId: v.string(),
     portfolio: v.array(
-      v.object({ ticker: v.string(), weight: v.number(), avgCost: v.number() })
+      v.object({
+        ticker: v.string(),
+        assetType: v.optional(
+          v.union(v.literal("stock"), v.literal("etf"), v.literal("crypto"))
+        ),
+        weight: v.number(),
+        avgCost: v.number(),
+      })
     ),
+    riskTolerance: v.optional(v.number()),
+    jargonLevel: v.optional(v.number()),
+    horizon: v.optional(v.string()),
+    experience: v.optional(v.string()),
+    thematicInterests: v.optional(v.array(v.string())),
     styleProfileSummary: v.string(),
   },
   handler: async (ctx, args) => {
