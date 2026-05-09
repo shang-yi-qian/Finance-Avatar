@@ -10,7 +10,7 @@ import os
 import time
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 from dotenv import load_dotenv
@@ -49,7 +49,7 @@ class SmitheryServiceError(RuntimeError):
     pass
 
 
-def _first_number(*values: Any) -> float | None:
+def _first_number(*values: Any) -> Optional[float]:
     for value in values:
         if value is None:
             continue
@@ -142,7 +142,7 @@ async def _fmp_get(client: httpx.AsyncClient, path: str, params: dict[str, Any])
     return payload
 
 
-def _tool_name(tools: list[dict[str, Any]], desired: str) -> str | None:
+def _tool_name(tools: list[dict[str, Any]], desired: str) -> Optional[str]:
     names = [tool.get("name") for tool in tools if isinstance(tool.get("name"), str)]
 
     for name in names:
@@ -210,7 +210,7 @@ def _consensus(price_target: dict[str, Any], quote: dict[str, Any]) -> str:
     return "hold"
 
 
-def _momentum_3m(price_change: dict[str, Any]) -> float | None:
+def _momentum_3m(price_change: dict[str, Any]) -> Optional[float]:
     return _first_number(
         price_change.get("3M"),
         price_change.get("3m"),
@@ -376,7 +376,7 @@ def _normalize_fundamentals(raw: dict[str, Any], ticker: str) -> dict[str, Any]:
 
 
 class _SmitheryConnectClient:
-    def __init__(self, connection_id: str | None = None) -> None:
+    def __init__(self, connection_id: Optional[str] = None) -> None:
         self.namespace = os.getenv("SMITHERY_NAMESPACE")
         self.connection_id = connection_id or os.getenv("SMITHERY_MARKET_CONNECTION_ID")
         self.api_key = os.getenv("SMITHERY_API_KEY")

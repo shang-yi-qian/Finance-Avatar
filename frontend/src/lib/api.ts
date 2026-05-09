@@ -33,6 +33,28 @@ export interface ProfileResponse {
   feedback_history: unknown[];
 }
 
+export interface OnboardProgressEvent {
+  stage: string;
+  message: string;
+  status: "pending" | "running" | "complete" | "error";
+  timestamp: number;
+}
+
+export function resolveMediaUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:")) {
+    return url;
+  }
+  if (url.startsWith("/generated/")) {
+    return `${BASE}${url}`;
+  }
+  return url;
+}
+
+export function onboardProgressUrl(jobId: string): string {
+  return `${BASE}/onboard/progress/${encodeURIComponent(jobId)}`;
+}
+
 export async function postPitch(
   ticker: string,
   userId: string,
@@ -44,7 +66,12 @@ export async function postPitch(
     body: JSON.stringify({ ticker, user_id: userId, profile }),
   });
   if (!res.ok) throw new Error(`/pitch failed: ${res.status}`);
-  return res.json();
+  const payload = await res.json();
+  return {
+    ...payload,
+    audio_url: resolveMediaUrl(payload.audio_url),
+    video_url: resolveMediaUrl(payload.video_url),
+  };
 }
 
 export interface FeedbackResponse {
@@ -118,5 +145,11 @@ export async function postOnboard(formData: FormData): Promise<{
 }> {
   const res = await fetch(`${BASE}/onboard`, { method: "POST", body: formData });
   if (!res.ok) throw new Error(`/onboard failed: ${res.status}`);
-  return res.json();
+  const payload = await res.json();
+  return {
+    ...payload,
+    avatar_variants: Array.isArray(payload.avatar_variants)
+      ? payload.avatar_variants.map((url: string) => resolveMediaUrl(url) ?? url)
+      : [],
+  };
 }

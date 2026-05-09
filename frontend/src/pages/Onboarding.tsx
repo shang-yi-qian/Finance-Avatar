@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { postOnboard } from "../lib/api";
+import { onboardProgressUrl, postOnboard, resolveMediaUrl, type OnboardProgressEvent } from "../lib/api";
 import {
   buildStyleSummary,
   createUserId,
   DEFAULT_USER_PROFILE,
   loadUserProfile,
   saveUserProfile,
+  TALKING_VIDEO_KEY,
   toConvexPortfolio,
   type AssetType,
   type LiveUserProfile,
@@ -25,6 +26,7 @@ const INTERESTS = [
   "healthcare",
 ];
 const MAX_RECORDING_SECONDS = 30;
+const FACE_RECORDING_SECONDS = 6;
 const DEFAULT_RECORDING_PROMPT =
   "Tell me about one stock, ETF, or crypto you like. Why does it fit your style?";
 const RECORDING_PROMPTS = [
@@ -61,6 +63,16 @@ const RECORDING_PROMPTS = [
 ];
 
 type OnboardResult = Awaited<ReturnType<typeof postOnboard>>;
+type StoredMedia = {
+  dataUrl: string;
+  name: string;
+  type: string;
+  savedAt: number;
+};
+
+const STORED_SELFIE_KEY = "pitchsnap:onboardingSelfie";
+const STORED_VOICE_KEY = "pitchsnap:onboardingVoice";
+const STORED_ONBOARD_RESULT_KEY = "pitchsnap:onboardingResult";
 
 function newHolding(assetType: AssetType = "stock"): PortfolioHolding {
   return {
@@ -72,15 +84,173 @@ function newHolding(assetType: AssetType = "stock"): PortfolioHolding {
   };
 }
 
+function createOnboardJobId() {
+  if (typeof window !== "undefined" && window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  return `onboard-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function loadStoredMedia(key: string): StoredMedia | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) || "null") as StoredMedia | null;
+    if (!parsed?.dataUrl || !parsed.name || !parsed.type) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredMedia(key: string, media: StoredMedia) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(media));
+  } catch {
+    // Browser storage can reject larger voice clips; the in-memory preview still works.
+  }
+}
+
+function clearStoredOnboardResult() {
+  try {
+    window.localStorage.removeItem(STORED_ONBOARD_RESULT_KEY);
+  } catch {
+    // Ignore storage errors; the current in-memory result will still reset.
+  }
+}
+
+function loadStoredOnboardResult(): OnboardResult | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(STORED_ONBOARD_RESULT_KEY) || "null") as OnboardResult | null;
+    if (!Array.isArray(parsed?.avatar_variants)) return null;
+    return {
+      ...parsed,
+      avatar_variants: parsed.avatar_variants.map((url) => resolveMediaUrl(url) ?? url),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredOnboardResult(result: OnboardResult) {
+  try {
+    window.localStorage.setItem(STORED_ONBOARD_RESULT_KEY, JSON.stringify(result));
+  } catch {
+    // Ignore storage errors; Convex/local profile still store the selected avatar.
+  }
+}
+
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [meta, base64] = dataUrl.split(",");
+  const mime = meta.match(/data:(.*?);base64/)?.[1] || "application/octet-stream";
+  const binary = window.atob(base64 || "");
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
+function storedMediaToFile(media: StoredMedia): File {
+  return new File([dataUrlToBlob(media.dataUrl)], media.name, { type: media.type });
+}
+
+function readAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+function waitForVideoEvent(video: HTMLVideoElement, eventName: keyof HTMLVideoElementEventMap): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onEvent = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error(`Video ${eventName} failed`));
+    };
+    const cleanup = () => {
+      video.removeEventListener(eventName, onEvent);
+      video.removeEventListener("error", onError);
+    };
+    video.addEventListener(eventName, onEvent, { once: true });
+    video.addEventListener("error", onError, { once: true });
+  });
+}
+
+async function extractFaceReferenceFrames(videoUrl: string, userId: string): Promise<File[]> {
+  if (!videoUrl) return [];
+
+  const video = document.createElement("video");
+  video.src = videoUrl;
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "metadata";
+  video.load();
+
+  try {
+    if (video.readyState < 1) {
+      await waitForVideoEvent(video, "loadedmetadata");
+    }
+
+    const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : FACE_RECORDING_SECONDS;
+    const times = [duration * 0.18, duration * 0.5, duration * 0.82];
+    const canvas = document.createElement("canvas");
+    canvas.width = 1024;
+    canvas.height = 1024;
+    const context = canvas.getContext("2d");
+    if (!context || video.videoWidth === 0 || video.videoHeight === 0) return [];
+
+    const frames: File[] = [];
+    for (const [index, time] of times.entries()) {
+      video.currentTime = Math.max(0, Math.min(duration - 0.05, time));
+      await waitForVideoEvent(video, "seeked");
+
+      const sourceSize = Math.min(video.videoWidth, video.videoHeight);
+      const sourceX = (video.videoWidth - sourceSize) / 2;
+      const sourceY = (video.videoHeight - sourceSize) / 2;
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(video, sourceX, sourceY, sourceSize, sourceSize, 0, 0, canvas.width, canvas.height);
+
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.88));
+      if (blob) {
+        frames.push(new File([blob], `${userId}-motion-reference-${index + 1}.jpg`, { type: "image/jpeg" }));
+      }
+    }
+    return frames;
+  } catch {
+    return [];
+  }
+}
+
 export default function Onboarding() {
   const upsertUser = useMutation(api.users.upsertUser);
   const initialProfile = useRef<LiveUserProfile>(loadUserProfile()).current;
+  const initialSelfieMedia = useRef<StoredMedia | null>(loadStoredMedia(STORED_SELFIE_KEY)).current;
+  const initialVoiceMedia = useRef<StoredMedia | null>(loadStoredMedia(STORED_VOICE_KEY)).current;
+  const initialFaceVideoMedia = useRef<StoredMedia | null>(loadStoredMedia(TALKING_VIDEO_KEY)).current;
+  const initialOnboardResult = useRef<OnboardResult | null>(loadStoredOnboardResult()).current;
   const initialVoicePrompt = initialProfile.voicePrompt || DEFAULT_RECORDING_PROMPT;
   const [displayName, setDisplayName] = useState(initialProfile.displayName);
-  const [selfieFile, setSelfieFile] = useState<File | null>(null);
-  const [selfiePreview, setSelfiePreview] = useState<string | null>(null);
-  const [voiceBlob, setVoiceBlob] = useState<Blob | null>(null);
-  const [voiceUrl, setVoiceUrl] = useState<string | null>(null);
+  const [selfieFile, setSelfieFile] = useState<File | null>(() =>
+    initialSelfieMedia ? storedMediaToFile(initialSelfieMedia) : null,
+  );
+  const [selfiePreview, setSelfiePreview] = useState<string | null>(initialSelfieMedia?.dataUrl ?? null);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [voiceBlob, setVoiceBlob] = useState<Blob | null>(() =>
+    initialVoiceMedia ? dataUrlToBlob(initialVoiceMedia.dataUrl) : null,
+  );
+  const [voiceUrl, setVoiceUrl] = useState<string | null>(initialVoiceMedia?.dataUrl ?? null);
+  const [voiceFileName, setVoiceFileName] = useState(initialVoiceMedia?.name ?? `${createUserId(initialProfile.displayName)}-voice.webm`);
+  const [faceVideoUrl, setFaceVideoUrl] = useState<string | null>(initialFaceVideoMedia?.dataUrl ?? null);
+  const [isFaceRecording, setIsFaceRecording] = useState(false);
+  const [faceSecondsLeft, setFaceSecondsLeft] = useState(FACE_RECORDING_SECONDS);
   const [voicePrompt, setVoicePrompt] = useState(initialVoicePrompt);
   const [selectedPromptId, setSelectedPromptId] = useState(
     RECORDING_PROMPTS.find((option) => option.prompt === initialVoicePrompt)?.id ?? "custom",
@@ -97,17 +267,23 @@ export default function Onboarding() {
   const [experience, setExperience] = useState(initialProfile.experience);
   const [interests, setInterests] = useState<string[]>(initialProfile.thematicInterests);
   const [portfolio, setPortfolio] = useState<PortfolioHolding[]>(initialProfile.portfolio);
-  const [result, setResult] = useState<OnboardResult | null>(null);
+  const [result, setResult] = useState<OnboardResult | null>(initialOnboardResult);
   const [selectedAvatar, setSelectedAvatar] = useState<string | null>(
-    initialProfile.avatarImageUrl ?? null,
+    initialProfile.avatarImageUrl ?? initialOnboardResult?.avatar_variants[0] ?? null,
   );
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [progressEvents, setProgressEvents] = useState<OnboardProgressEvent[]>([]);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const faceRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const faceChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
+  const faceTimerRef = useRef<number | null>(null);
 
   const userId = createUserId(displayName);
 
@@ -158,29 +334,47 @@ export default function Onboarding() {
 
   useEffect(() => {
     return () => {
-      if (selfiePreview) URL.revokeObjectURL(selfiePreview);
+      if (selfiePreview?.startsWith("blob:")) URL.revokeObjectURL(selfiePreview);
     };
   }, [selfiePreview]);
 
   useEffect(() => {
     return () => {
-      if (voiceUrl) URL.revokeObjectURL(voiceUrl);
+      if (voiceUrl?.startsWith("blob:")) URL.revokeObjectURL(voiceUrl);
     };
   }, [voiceUrl]);
 
   useEffect(() => {
     return () => {
+      if (faceVideoUrl?.startsWith("blob:")) URL.revokeObjectURL(faceVideoUrl);
+    };
+  }, [faceVideoUrl]);
+
+  useEffect(() => {
+    return () => {
       stopTracks();
+      releaseCameraStream();
       clearTimer();
+      clearFaceTimer();
     };
   }, []);
+
+  useEffect(() => {
+    if (!cameraActive || !cameraVideoRef.current || !cameraStreamRef.current) return;
+
+    cameraVideoRef.current.srcObject = cameraStreamRef.current;
+    cameraVideoRef.current.play().catch(() => {
+      setCameraError("Camera preview could not start. Try reopening the camera.");
+    });
+  }, [cameraActive]);
 
   function buildProfile(avatarImageUrl?: string, voiceId?: string): LiveUserProfile {
     return {
       userId,
       displayName: displayName.trim() || DEFAULT_USER_PROFILE.displayName,
-      avatarImageUrl,
-      voiceId,
+      avatarImageUrl: avatarImageUrl ?? selectedAvatar ?? initialProfile.avatarImageUrl,
+      talkingVideoUrl: faceVideoUrl ?? initialProfile.talkingVideoUrl,
+      voiceId: voiceId ?? result?.voice_id ?? initialProfile.voiceId,
       voicePrompt,
       voiceTranscript,
       slangExamples,
@@ -209,17 +403,203 @@ export default function Onboarding() {
     }
   }
 
+  function clearFaceTimer() {
+    if (faceTimerRef.current) {
+      window.clearInterval(faceTimerRef.current);
+      faceTimerRef.current = null;
+    }
+  }
+
   function stopTracks() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
   }
 
-  function handleSelfie(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] ?? null;
+  function releaseCameraStream() {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    if (cameraVideoRef.current) {
+      cameraVideoRef.current.srcObject = null;
+    }
+  }
+
+  async function startCamera() {
+    setError(null);
+    setCameraError(null);
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("This browser does not expose camera capture.");
+      return;
+    }
+
+    try {
+      releaseCameraStream();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "user",
+          width: { ideal: 1280 },
+          height: { ideal: 1280 },
+        },
+        audio: false,
+      });
+      cameraStreamRef.current = stream;
+      setCameraActive(true);
+    } catch {
+      setCameraError("Camera permission was blocked or unavailable.");
+      releaseCameraStream();
+      setCameraActive(false);
+    }
+  }
+
+  function stopCamera() {
+    releaseCameraStream();
+    setCameraActive(false);
+  }
+
+  function getSupportedVideoMimeType() {
+    const candidates = ["video/webm;codecs=vp8", "video/webm", "video/mp4"];
+    return candidates.find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) || "";
+  }
+
+  async function startFaceMotionRecording() {
+    setError(null);
+    setCameraError(null);
+
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setCameraError("This browser does not expose video recording.");
+      return;
+    }
+
+    try {
+      releaseCameraStream();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "user",
+          width: { ideal: 480 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 18, max: 24 },
+        },
+        audio: false,
+      });
+      cameraStreamRef.current = stream;
+      setCameraActive(true);
+      faceChunksRef.current = [];
+      setFaceVideoUrl(null);
+
+      const mimeType = getSupportedVideoMimeType();
+      const recorder = new MediaRecorder(stream, {
+        ...(mimeType ? { mimeType } : {}),
+        videoBitsPerSecond: 420_000,
+      });
+      faceRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) faceChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const type = recorder.mimeType || mimeType || "video/webm";
+        const blob = new Blob(faceChunksRef.current, { type });
+        readAsDataUrl(blob)
+          .then((dataUrl) => {
+            setFaceVideoUrl(dataUrl);
+            saveStoredMedia(TALKING_VIDEO_KEY, {
+              dataUrl,
+              name: `${userId}-talking-face.webm`,
+              type,
+              savedAt: Date.now(),
+            });
+            setStatus("Face motion sample saved as an extra OpenAI avatar reference.");
+          })
+          .catch(() => {
+            setFaceVideoUrl(URL.createObjectURL(blob));
+          });
+        setIsFaceRecording(false);
+        clearFaceTimer();
+        stopCamera();
+      };
+
+      recorder.start(250);
+      setIsFaceRecording(true);
+      setFaceSecondsLeft(FACE_RECORDING_SECONDS);
+      faceTimerRef.current = window.setInterval(() => {
+        setFaceSecondsLeft((current) => {
+          if (current <= 1) {
+            stopFaceMotionRecording();
+            return 0;
+          }
+          return current - 1;
+        });
+      }, 1000);
+    } catch {
+      setCameraError("Camera permission was blocked or video recording is unavailable.");
+      setIsFaceRecording(false);
+      clearFaceTimer();
+      stopCamera();
+    }
+  }
+
+  function stopFaceMotionRecording() {
+    if (faceRecorderRef.current?.state === "recording") {
+      faceRecorderRef.current.stop();
+    } else {
+      setIsFaceRecording(false);
+      clearFaceTimer();
+      stopCamera();
+    }
+  }
+
+  async function setSelfieReference(file: File, statusMessage: string) {
     setSelfieFile(file);
     setResult(null);
-    if (selfiePreview) URL.revokeObjectURL(selfiePreview);
-    setSelfiePreview(file ? URL.createObjectURL(file) : null);
+    clearStoredOnboardResult();
+    const dataUrl = await readAsDataUrl(file);
+    setSelfiePreview(dataUrl);
+    saveStoredMedia(STORED_SELFIE_KEY, {
+      dataUrl,
+      name: file.name,
+      type: file.type || "image/jpeg",
+      savedAt: Date.now(),
+    });
+    setStatus(statusMessage);
+  }
+
+  async function handleSelfie(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    if (!file) return;
+    await setSelfieReference(file, "Uploaded image saved as the avatar reference.");
+  }
+
+  async function captureCameraSelfie() {
+    const video = cameraVideoRef.current;
+    if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
+      setCameraError("Camera is still warming up. Try capture again in a second.");
+      return;
+    }
+
+    const size = Math.min(video.videoWidth, video.videoHeight);
+    const sourceX = (video.videoWidth - size) / 2;
+    const sourceY = (video.videoHeight - size) / 2;
+    const canvas = document.createElement("canvas");
+    canvas.width = 1024;
+    canvas.height = 1024;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setCameraError("Could not capture from this camera stream.");
+      return;
+    }
+
+    context.drawImage(video, sourceX, sourceY, size, size, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, "image/jpeg", 0.92);
+    });
+    if (!blob) {
+      setCameraError("Could not save the captured frame.");
+      return;
+    }
+
+    const file = new File([blob], `${userId}-camera-reference.jpg`, { type: "image/jpeg" });
+    await setSelfieReference(file, "Live camera reference captured and saved locally.");
+    setCameraError(null);
+    stopCamera();
   }
 
   async function startRecording() {
@@ -247,7 +627,23 @@ export default function Onboarding() {
       recorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
         setVoiceBlob(blob);
-        setVoiceUrl(URL.createObjectURL(blob));
+        const fileName = `${userId}-voice.webm`;
+        setVoiceFileName(fileName);
+        readAsDataUrl(blob)
+          .then((dataUrl) => {
+            setVoiceUrl(dataUrl);
+            saveStoredMedia(STORED_VOICE_KEY, {
+              dataUrl,
+              name: fileName,
+              type: blob.type || "audio/webm",
+              savedAt: Date.now(),
+            });
+          })
+          .catch(() => {
+            setVoiceUrl(URL.createObjectURL(blob));
+          });
+        setResult(null);
+        clearStoredOnboardResult();
         setIsRecording(false);
         clearTimer();
         stopTracks();
@@ -304,16 +700,40 @@ export default function Onboarding() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    setStatus("Generating avatar variants and registering the voice profile...");
+    setStatus("Preparing camera image and voice sample upload...");
     setResult(null);
+    const jobId = createOnboardJobId();
+    const initialProgress: OnboardProgressEvent = {
+      stage: "prepare",
+      message: "Preparing camera image, voice sample, and profile answers for upload.",
+      status: "running",
+      timestamp: Date.now() / 1000,
+    };
+    setProgressEvents([initialProgress]);
 
     const liveProfile = buildProfile(selectedAvatar ?? undefined, result?.voice_id);
     const formData = new FormData();
+    formData.append("job_id", jobId);
     if (selfieFile) formData.append("selfie", selfieFile);
-    if (voiceBlob) formData.append("voice_recording", voiceBlob, `${liveProfile.userId}-voice.webm`);
+    if (voiceBlob) formData.append("voice_recording", voiceBlob, voiceFileName || `${liveProfile.userId}-voice.webm`);
+    if (faceVideoUrl) {
+      setStatus("Extracting motion reference frames for OpenAI avatar generation...");
+      setProgressEvents((current) => [
+        ...current,
+        {
+          stage: "motion_frames",
+          message: "Extracting still frames from the short face-motion clip. These guide the generated avatar; the raw clip is not shown on the dashboard.",
+          status: "running",
+          timestamp: Date.now() / 1000,
+        },
+      ]);
+      const referenceFrames = await extractFaceReferenceFrames(faceVideoUrl, liveProfile.userId);
+      referenceFrames.forEach((frame) => formData.append("face_reference_frames", frame, frame.name));
+    }
     formData.append(
       "quiz_answers",
       JSON.stringify({
+        job_id: jobId,
         user_id: liveProfile.userId,
         display_name: liveProfile.displayName,
         risk_tolerance: liveProfile.riskTolerance,
@@ -323,8 +743,42 @@ export default function Onboarding() {
         jargon_level: liveProfile.jargonLevel,
         portfolio: liveProfile.portfolio,
         voice_prompt: voicePrompt,
+        voice_id: liveProfile.voiceId,
       }),
     );
+
+    let progressSource: EventSource | null = null;
+    if (typeof EventSource !== "undefined") {
+      progressSource = new EventSource(onboardProgressUrl(jobId));
+      progressSource.onmessage = (message) => {
+        try {
+          const progress = JSON.parse(message.data) as OnboardProgressEvent;
+          setProgressEvents((current) => [...current, progress]);
+          setStatus(progress.message);
+        } catch {
+          setProgressEvents((current) => [
+            ...current,
+            {
+              stage: "progress",
+              message: "Received an unreadable progress update from the backend.",
+              status: "running",
+              timestamp: Date.now() / 1000,
+            },
+          ]);
+        }
+      };
+      progressSource.onerror = () => {
+        setProgressEvents((current) => [
+          ...current,
+          {
+            stage: "progress",
+            message: "Progress stream disconnected; waiting for the final onboarding response.",
+            status: "running",
+            timestamp: Date.now() / 1000,
+          },
+        ]);
+      };
+    }
 
     try {
       const response = await postOnboard(formData);
@@ -338,11 +792,32 @@ export default function Onboarding() {
         setToneFormality(Math.max(0, Math.min(1, patch.formality)));
       }
       setResult(response);
+      saveStoredOnboardResult(response);
       setSelectedAvatar(response.avatar_variants[0] ?? selectedAvatar);
       setStatus("Choose the avatar variant for this profile.");
+      setProgressEvents((current) => [
+        ...current,
+        {
+          stage: "complete",
+          message: "Frontend received avatar variants and voice profile data.",
+          status: "complete",
+          timestamp: Date.now() / 1000,
+        },
+      ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Onboarding failed");
       setStatus(null);
+      setProgressEvents((current) => [
+        ...current,
+        {
+          stage: "error",
+          message: err instanceof Error ? err.message : "Onboarding failed",
+          status: "error",
+          timestamp: Date.now() / 1000,
+        },
+      ]);
+    } finally {
+      progressSource?.close();
     }
   }
 
@@ -380,7 +855,7 @@ export default function Onboarding() {
   }
 
   const validPortfolio = buildProfile().portfolio.length > 0;
-  const canSubmit = Boolean(displayName.trim()) && interests.length > 0 && validPortfolio && !isRecording;
+  const canSubmit = Boolean(displayName.trim()) && interests.length > 0 && validPortfolio && !isRecording && !isFaceRecording && !cameraActive;
 
   return (
     <div className="page-stack">
@@ -397,10 +872,16 @@ export default function Onboarding() {
       <form className="card onboarding-card" onSubmit={handleSubmit}>
 
         <section className="onboarding-section profile-intro-grid">
-          <div className="upload-preview">
-            {selfiePreview ? <img src={selfiePreview} alt="Selfie preview" /> : <span>Selfie</span>}
+          <div className="upload-preview camera-preview">
+            {cameraActive ? (
+              <video ref={cameraVideoRef} muted playsInline aria-label="Live camera preview" />
+            ) : selfiePreview ? (
+              <img src={selfiePreview} alt="Captured camera reference" />
+            ) : (
+              <span>Camera</span>
+            )}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="identity-panel">
             <label className="field-label" htmlFor="display-name">Display name</label>
             <input
               id="display-name"
@@ -408,11 +889,48 @@ export default function Onboarding() {
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
             />
-            <label className="file-button">
-              <input type="file" accept="image/*" onChange={handleSelfie} />
-              Upload selfie
-            </label>
+            <div className="camera-controls">
+              <button className={cameraActive ? "btn btn-ghost" : "btn btn-primary"} type="button" onClick={cameraActive ? stopCamera : startCamera}>
+                {cameraActive ? "Close camera" : "Open camera"}
+              </button>
+              <button className="btn btn-ghost" type="button" onClick={captureCameraSelfie} disabled={!cameraActive}>
+                Capture
+              </button>
+              <label className="file-button">
+                <input type="file" accept="image/*" onChange={handleSelfie} />
+                Upload fallback
+              </label>
+            </div>
+            {selfieFile && <p className="hint-text">Reference captured: {selfieFile.name}</p>}
+            {cameraError && <p className="error-text">{cameraError}</p>}
           </div>
+        </section>
+
+        <section className="onboarding-section face-motion-section">
+          <div className="section-header">
+            <div>
+              <h2>Motion reference</h2>
+              <p>
+                Record a short silent clip. Smile, blink, and say a sentence naturally so OpenAI has expression references for the generated avatar.
+              </p>
+            </div>
+            <button
+              type="button"
+              className={isFaceRecording ? "btn btn-ghost" : "btn btn-primary"}
+              onClick={isFaceRecording ? stopFaceMotionRecording : startFaceMotionRecording}
+              disabled={isRecording}
+            >
+              {isFaceRecording ? `Stop ${faceSecondsLeft}s` : "Record motion"}
+            </button>
+          </div>
+          {faceVideoUrl ? (
+            <div className="face-motion-preview">
+              <video src={faceVideoUrl} muted loop playsInline controls />
+              <p>Saved locally as reference frames for avatar generation. The raw clip is not shown on the dashboard.</p>
+            </div>
+          ) : (
+            <div className="empty-strip">No motion reference recorded yet.</div>
+          )}
         </section>
 
         <section className="onboarding-section">
@@ -589,6 +1107,16 @@ export default function Onboarding() {
           </button>
           {status && <span className="status-text">{status}</span>}
         </div>
+        {progressEvents.length > 0 && (
+          <div className="onboard-progress" aria-live="polite">
+            {progressEvents.slice(-8).map((progress, index) => (
+              <div className={`progress-event ${progress.status}`} key={`${progress.stage}-${progress.timestamp}-${index}`}>
+                <span>{progress.stage.replaceAll("_", " ")}</span>
+                <p>{progress.message}</p>
+              </div>
+            ))}
+          </div>
+        )}
         {error && <p className="error-text">{error}</p>}
       </form>
 
@@ -610,7 +1138,10 @@ export default function Onboarding() {
                   onClick={() => setSelectedAvatar(url)}
                   aria-label={`Choose avatar variant ${index + 1}`}
                 >
-                  <img src={url} alt={`Avatar variant ${index + 1}`} />
+                  <img
+                    src={url}
+                    alt={`Avatar variant ${index + 1}`}
+                  />
                 </button>
               ))}
             </div>

@@ -12,6 +12,7 @@ export type LiveUserProfile = {
   userId: string;
   displayName: string;
   avatarImageUrl?: string;
+  talkingVideoUrl?: string;
   voiceId?: string;
   voicePrompt?: string;
   voiceTranscript?: string;
@@ -30,6 +31,7 @@ export type LiveUserProfile = {
 
 export const ACTIVE_PROFILE_KEY = "pitchsnap:activeProfile";
 export const SELECTED_AVATAR_KEY = "pitchsnap:selectedAvatar";
+export const TALKING_VIDEO_KEY = "pitchsnap:onboardingFaceVideo";
 
 export const DEFAULT_USER_PROFILE: LiveUserProfile = {
   userId: "live_demo_user",
@@ -134,7 +136,11 @@ export function loadUserProfile(): LiveUserProfile {
 }
 
 export function saveUserProfile(profile: LiveUserProfile) {
-  window.localStorage.setItem(ACTIVE_PROFILE_KEY, JSON.stringify(profile));
+  const lightweightProfile = {
+    ...profile,
+    talkingVideoUrl: profile.talkingVideoUrl?.startsWith("data:") ? undefined : profile.talkingVideoUrl,
+  };
+  window.localStorage.setItem(ACTIVE_PROFILE_KEY, JSON.stringify(lightweightProfile));
   if (profile.avatarImageUrl) {
     window.localStorage.setItem(SELECTED_AVATAR_KEY, profile.avatarImageUrl);
   }
