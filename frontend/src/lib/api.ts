@@ -12,12 +12,39 @@ export interface FitScore {
   breakdown: Record<string, FitScoreBreakdown>;
 }
 
+export interface ResearchSource {
+  title: string;
+  url: string;
+  publishedDate: string | null;
+}
+
+export interface PortfolioContext {
+  status: string;
+  summary: string;
+  current_weight: number | null;
+  avg_cost: number | null;
+}
+
+export interface PitchReport {
+  recommendation: string;
+  headline: string;
+  research_summary: string;
+  earnings_sentiment: string;
+  analyst_tone: string;
+  valuation_snapshot: Record<string, unknown>;
+  portfolio_context: PortfolioContext;
+  key_takeaways: string[];
+  risks: string[];
+  sources: ResearchSource[];
+}
+
 export interface PitchResponse {
   ticker: string;
   user_id: string;
   pitch_id: string | null;
   fit_score: FitScore;
   spoken_text: string;
+  report: PitchReport | null;
   audio_url: string | null;
   video_url: string | null;
 }
