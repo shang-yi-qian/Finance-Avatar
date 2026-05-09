@@ -32,11 +32,6 @@ DEFAULT_PROFILE: dict[str, Any] = {
     "explanation_depth": "medium",
     "thematic_interests": ["semiconductors", "AI infrastructure", "cloud", "consumer tech"],
     "horizon": "6_months_to_2_years",
-    "portfolio": [
-        {"ticker": "NVDA", "asset_type": "stock", "weight": 0.28, "avg_cost": 480},
-        {"ticker": "MSFT", "asset_type": "stock", "weight": 0.20, "avg_cost": 380},
-        {"ticker": "BTC", "asset_type": "crypto", "weight": 0.08, "avg_cost": 65000},
-    ],
     "feedback_history": [],
 }
 

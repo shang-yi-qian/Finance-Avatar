@@ -1,8 +1,6 @@
 # PitchSnap — CLAUDE.md
 
-Personalized stock-fit assistant. User onboards with preferences + optional voice sample → types a ticker → multi-agent pipeline pulls live Exa research + Smithery/FMP valuation → scores the stock against their profile/portfolio → dashboard shows a full report and optional ElevenLabs voice pitch.
-
-**Current demo pivot:** Avatar/lipsync is no longer the core dependency. The main demo is report-first: ticker in → live research + valuation + portfolio fit + jargon-adapted pitch + optional cloned-voice audio if a real ElevenLabs voice ID exists.
+Personalized stock-fit assistant. User onboards with a selfie + voice sample → gets a stylized avatar → types a ticker → multi-agent pipeline scores the stock against their profile → avatar speaks the verdict in their cloned voice.
 
 **Key demo beat (Adaption track, $1,500 cash):** 👎 "too jargon-y" → next pitch is audibly simpler → StyleProfilePanel updates live. Do not cut this.
 
@@ -62,7 +60,7 @@ Convex (convex/)                  External APIs
 | 1 | Skeleton — mock routes, Convex schema, routing, PitchCard, TickerInput | ✅ Done |
 | 2 | Real agent loop — orchestrator + Exa research, Smithery/FMP valuation, fit score, synthesis | ✅ Done — `/pitch` returns real Exa news context + real Smithery/FMP valuation context |
 | 3 | Personalization — Adaption-style profile store, POST /feedback rules, FeedbackButtons, StyleProfilePanel live | ✅ Done — 👎 → simpler pitch loop verified end-to-end |
-| 4 | Avatar pipeline — OnboardingFlow, GPT Image avatar variants, ElevenLabs clone+TTS, AvatarViewport | ⏸ De-scoped for main demo — keep optional voice/TTS, do not block on avatar/lipsync |
+| 4 | Avatar pipeline — OnboardingFlow, GPT Image avatar variants, ElevenLabs clone+TTS, AvatarViewport | 🟡 In progress — code exists, needs QA/fix pass |
 | 5 | Realtime voice + polish — GPT Realtime 2 WS proxy, share button, pre-seed kai_demo | ⬜ |
 
 ---
@@ -116,61 +114,6 @@ Goal: replace mock routes with real agent calls. Checkpoint: NVDA returns real n
 - **If you want a working Smithery call**: search Smithery for a market-data connector that (a) has a visible config schema in the setup UI, or (b) works without an external API key.
 
 **All Phase 2 agent files are committed and working. `/pitch` is live.**
-
-### Current Report-First Pitch Status — 2026-05-09
-
-The dashboard has been pivoted away from avatar-first UX. `/pitch` now returns
-both the spoken pitch and a structured report object:
-
-```json
-{
-  "spoken_text": "...jargon-adapted pitch...",
-  "audio_url": "/generated/audio/..." | null,
-  "report": {
-    "recommendation": "Strong fit | Good fit | Watchlist | Skip for now",
-    "headline": "one-line verdict",
-    "research_summary": "Exa-generated recent context",
-    "earnings_sentiment": "Exa/OpenAI earnings tone",
-    "analyst_tone": "bullish | neutral | bearish",
-    "valuation_snapshot": {
-      "price": "...",
-      "market_cap": "...",
-      "pe_forward": 0,
-      "beta": 0,
-      "consensus": "buy/hold/sell",
-      "analyst_target": "...",
-      "sector_tags": [],
-      "peers": []
-    },
-    "portfolio_context": {
-      "status": "owned | new",
-      "summary": "portfolio-aware explanation"
-    },
-    "key_takeaways": [],
-    "risks": [],
-    "sources": [{ "title": "...", "url": "...", "publishedDate": "..." }]
-  }
-}
-```
-
-Frontend changes:
-- `frontend/src/pages/Dashboard.tsx` is now a **Stock Pitch Studio**.
-- Avatar viewport removed from the main dashboard.
-- Left sidebar shows style profile + portfolio snapshot + voice status.
-- Main card (`PitchCard.tsx`) shows:
-  - fit score and recommendation
-  - spoken pitch
-  - optional `<audio controls>` if ElevenLabs TTS returns an `audio_url`
-  - live research section
-  - portfolio context
-  - valuation metrics
-  - takeaways / risks
-  - Exa source links
-
-Verified smoke tests:
-- `NVDA` → `Strong fit`, recognizes existing default 28% NVDA holding, 5 Exa sources.
-- `TSLA` → `Watchlist`, new position against NVDA/MSFT/BTC portfolio, 5 Exa sources.
-- Frontend `tsc -b`, Vite production build, and backend `compileall` pass.
 
 ### Files to create
 

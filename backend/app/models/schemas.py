@@ -44,39 +44,12 @@ class FitScore(BaseModel):
     breakdown: dict[str, FitScoreBreakdown]
 
 
-class ResearchSource(BaseModel):
-    title: str
-    url: str
-    publishedDate: Optional[str] = None
-
-
-class PortfolioContext(BaseModel):
-    status: str
-    summary: str
-    current_weight: Optional[float] = None
-    avg_cost: Optional[float] = None
-
-
-class PitchReport(BaseModel):
-    recommendation: str
-    headline: str
-    research_summary: str
-    earnings_sentiment: str
-    analyst_tone: str
-    valuation_snapshot: dict[str, Any]
-    portfolio_context: PortfolioContext
-    key_takeaways: list[str]
-    risks: list[str]
-    sources: list[ResearchSource] = []
-
-
 class PitchResponse(BaseModel):
     ticker: str
     user_id: str
     pitch_id: Optional[str] = None
     fit_score: FitScore
     spoken_text: str
-    report: Optional[PitchReport] = None
     audio_url: Optional[str] = None
     video_url: Optional[str] = None
 

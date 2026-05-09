@@ -3,6 +3,7 @@ import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import TickerInput from "../components/TickerInput";
 import PitchCard from "../components/PitchCard";
+import AvatarViewport from "../components/AvatarViewport";
 import FeedbackButtons from "../components/FeedbackButtons";
 import StyleProfilePanel from "../components/StyleProfilePanel";
 import RealtimeVoiceToggle from "../components/RealtimeVoiceToggle";
@@ -11,6 +12,7 @@ import {
   applyBackendProfileToLocal,
   loadUserProfile,
   saveUserProfile,
+  SELECTED_AVATAR_KEY,
   toBackendProfile,
 } from "../lib/userProfile";
 
@@ -21,19 +23,17 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [profileRefresh, setProfileRefresh] = useState(0);
   const convexUser = useQuery(api.users.getUser, { userId: activeProfile.userId });
+  const savedAvatar =
+    convexUser?.avatarImageUrl || activeProfile.avatarImageUrl || window.localStorage.getItem(SELECTED_AVATAR_KEY) || undefined;
 
   async function handleTicker(ticker: string) {
     const latestProfile = loadUserProfile();
-    const profileForPitch = {
-      ...latestProfile,
-      voiceId: latestProfile.voiceId || convexUser?.voiceId,
-    };
-    setActiveProfile(profileForPitch);
+    setActiveProfile(latestProfile);
     setLoading(true);
     setError(null);
     setPitch(null);
     try {
-      const result = await postPitch(ticker, profileForPitch.userId, toBackendProfile(profileForPitch));
+      const result = await postPitch(ticker, latestProfile.userId, toBackendProfile(latestProfile));
       setPitch(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -54,29 +54,22 @@ export default function Dashboard() {
     <div className="page-stack">
       <header className="page-heading">
         <div>
-          <h1>Stock Pitch Studio</h1>
-          <p>
-            Type a ticker and get a live research report, portfolio-fit score, and jargon-adapted pitch.
-            If onboarding created a voice clone, the pitch also plays as audio.
-          </p>
+          <h1>Dashboard</h1>
+          <p>Run a stock or crypto pitch against the live profile from onboarding.</p>
         </div>
       </header>
 
-      <div className="report-dashboard-grid">
-      <aside className="report-sidebar">
+      <div className="dashboard-grid">
+      <div className="sidebar-column">
+        <AvatarViewport
+          avatarImageUrl={savedAvatar}
+          audioUrl={pitch?.audio_url ?? undefined}
+          videoUrl={pitch?.video_url ?? undefined}
+          speaking={!!pitch?.audio_url}
+        />
         <StyleProfilePanel userId={activeProfile.userId} refreshKey={profileRefresh} />
-        <div className="card mini-profile-card">
-          <span className="profile-label">Portfolio snapshot</span>
-          <strong>{activeProfile.displayName}</strong>
-          <p>{activeProfile.portfolio.map((holding) => `${holding.ticker} ${Math.round(holding.weight * 100)}%`).join(" · ")}</p>
-          {convexUser?.voiceId || activeProfile.voiceId ? (
-            <span className="voice-status voice-status-live">Voice ready</span>
-          ) : (
-            <span className="voice-status">Voice optional</span>
-          )}
-        </div>
         {pitch && <RealtimeVoiceToggle ticker={pitch.ticker} />}
-      </aside>
+      </div>
 
       <div className="content-column">
         <TickerInput onSubmit={handleTicker} loading={loading} />
