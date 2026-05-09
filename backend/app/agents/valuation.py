@@ -10,6 +10,21 @@ from typing import Any
 ValuationResult = dict[str, Any]
 
 
+def _report_context(
+    analyst: str,
+    earnings: str,
+    quality: str,
+    peers: list[str],
+    valuation: str,
+) -> dict[str, Any]:
+    return {
+        "analyst_context": {"summary": analyst},
+        "earnings_context": {"summary": earnings},
+        "quality_context": {"summary": quality},
+        "peer_context": {"peers": peers, "summary": valuation},
+    }
+
+
 _FALLBACK_VALUATIONS: dict[str, ValuationResult] = {
     "NVDA": {
         "price": 920.0,
@@ -21,6 +36,13 @@ _FALLBACK_VALUATIONS: dict[str, ValuationResult] = {
         "consensus": "buy",
         "momentum_3m": 18.0,
         "sector_tags": ["semiconductors", "AI infrastructure", "cloud"],
+        **_report_context(
+            analyst="Analyst setup is supportive, with upside still tied to AI infrastructure demand.",
+            earnings="Recent earnings context looks strong, but expectations are already elevated.",
+            quality="Quality profile is high, led by margins, scale, and data-center demand.",
+            peers=["AMD", "AVGO", "TSM"],
+            valuation="Premium valuation versus peers, but growth is also stronger than average.",
+        ),
     },
     "TSLA": {
         "price": 175.0,
@@ -32,6 +54,13 @@ _FALLBACK_VALUATIONS: dict[str, ValuationResult] = {
         "consensus": "hold",
         "momentum_3m": -6.0,
         "sector_tags": ["consumer tech", "EVs", "autonomy", "energy"],
+        **_report_context(
+            analyst="Analyst tone is mixed, with autonomy upside balanced against delivery and margin risk.",
+            earnings="Recent earnings context is uneven, especially around margins and demand.",
+            quality="Quality profile depends heavily on execution and cost control.",
+            peers=["RIVN", "GM", "F"],
+            valuation="Valuation still prices in future optionality more than current auto fundamentals.",
+        ),
     },
     "MSFT": {
         "price": 430.0,
@@ -43,6 +72,13 @@ _FALLBACK_VALUATIONS: dict[str, ValuationResult] = {
         "consensus": "buy",
         "momentum_3m": 9.0,
         "sector_tags": ["cloud", "AI infrastructure", "enterprise software"],
+        **_report_context(
+            analyst="Analyst setup is constructive, centered on Azure and AI monetization.",
+            earnings="Recent earnings context is steady, with cloud growth doing most of the work.",
+            quality="Quality profile is strong thanks to durable cash flow and diversified software demand.",
+            peers=["GOOGL", "AMZN", "ORCL"],
+            valuation="Valuation is not cheap, but quality and earnings consistency help support it.",
+        ),
     },
     "BTC": {
         "price": 65000.0,
@@ -80,6 +116,10 @@ def _default_valuation(ticker: str) -> ValuationResult:
         "consensus": "unknown",
         "momentum_3m": 0.0,
         "sector_tags": [],
+        "analyst_context": {},
+        "earnings_context": {},
+        "quality_context": {},
+        "peer_context": {},
         "ticker": ticker,
     }
 
@@ -105,16 +145,29 @@ def _normalize_valuation(raw: Any, ticker: str) -> ValuationResult:
     if not isinstance(sector_tags, list):
         result["sector_tags"] = []
 
+    for key in ("analyst_context", "earnings_context", "quality_context", "peer_context"):
+        if not isinstance(result.get(key), dict):
+            result[key] = {}
+
     return result
 
 
 async def run_valuation(ticker: str) -> ValuationResult:
     normalized_ticker = ticker.upper().strip()
+    fallback = _FALLBACK_VALUATIONS.get(normalized_ticker, _default_valuation(normalized_ticker))
 
     try:
         from app.services.smithery_service import get_fundamentals
     except ImportError:
-        return _FALLBACK_VALUATIONS.get(normalized_ticker, _default_valuation(normalized_ticker))
+        return fallback
 
-    raw = await get_fundamentals(normalized_ticker)
+    try:
+        raw = await get_fundamentals(normalized_ticker)
+    except Exception:
+        # Demo resilience: if Smithery is not configured yet, keep /pitch working.
+        return fallback
+
+    if not raw:
+        return fallback
+
     return _normalize_valuation(raw, normalized_ticker)

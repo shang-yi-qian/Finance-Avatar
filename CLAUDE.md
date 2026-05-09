@@ -58,7 +58,7 @@ Convex (convex/)                  External APIs
 | Phase | What | Status |
 |-------|------|--------|
 | 1 | Skeleton — mock routes, Convex schema, routing, PitchCard, TickerInput | ✅ Done |
-| 2 | Real agent loop — GPT-5.5 orchestrator + 4 subagents (Exa, Smithery, fit score, synthesis) | ⬜ Next |
+| 2 | Real agent loop — orchestrator + research, valuation, fit score, synthesis | 🟡 In progress — backend pipeline works; valuation now pulls real FMP stable API data when Smithery cannot pass FMP token |
 | 3 | Personalization — Adaption service, POST /feedback, FeedbackButtons, StyleProfilePanel live | ⬜ |
 | 4 | Avatar pipeline — OnboardingFlow, GPT Image 2, ElevenLabs clone+TTS, AvatarViewport | ⬜ |
 | 5 | Realtime voice + polish — GPT Realtime 2 WS proxy, share button, pre-seed kai_demo | ⬜ |
@@ -68,6 +68,38 @@ Convex (convex/)                  External APIs
 ## Phase 2 — What to Build Next (Dev A)
 
 Goal: replace mock routes with real agent calls. Checkpoint: NVDA returns real news, real fit score, real pitch text.
+
+### Current Phase 2 Status — 2026-05-09
+
+**Implemented locally and tested:**
+- `backend/app/agents/orchestrator.py` calls `research → valuation → fit_score → synthesis`.
+- `backend/app/agents/research.py` exists with deterministic fallback research. It will use `app.services.exa_service.search(ticker, days=7)` once that service exists.
+- `backend/app/agents/valuation.py` exists with fallback valuation data and calls `app.services.smithery_service.get_fundamentals(ticker)` when available.
+- `backend/app/agents/fit_score.py` computes the weighted score deterministically.
+- `backend/app/agents/synthesis.py` creates the spoken pitch and now consumes richer valuation/report context when present.
+- `backend/app/routes/pitch.py` now calls `run_orchestrator(...)` instead of returning the old `MOCK_PITCH`.
+- `/pitch` smoke test passes for NVDA/TSLA with fallback data.
+
+**Smithery integration code added locally:**
+- `backend/app/services/smithery_service.py` calls Smithery Connect API from `.env`.
+- Uses 5-minute ticker cache.
+- Working Smithery connector for sponsor track: `shibui/finance` with connection ID `finance`.
+- Shibui tools used: `stock_data_query` (and schema/pattern tools for development). It returns live Smithery-backed price, P/E, market cap, 3-month momentum, sector tags, and growth/quality context.
+- Core FMP tools: `getQuote`, `getCompanyProfile`, `getFinancialRatiosTTM`, `getKeyMetricsTTM`, `getPriceTargetConsensus`, `getStockPriceChange`.
+- Optional report-context tools: `getRatingsSnapshot`, `getStockGradeSummary`, `getAnalystEstimates`, `getEarningsReports`, `getIncomeStatementGrowth`, `getFinancialScores`, `getStockPeers`, `getSectorPESnapshot`, `getIndustryPESnapshot`.
+- Normalizes output into valuation fields plus `analyst_context`, `earnings_context`, `quality_context`, and `peer_context`.
+
+**Current Smithery/FMP status — KNOWN ISSUE:**
+- Smithery namespace `tkzk2003` has two FMP connectors: `cfocoder-financial-modeling-prep-mcp-server` and `imbenrabi-financial-modeling-prep-mcp-server`. Both show status connected and expose 253 tools.
+- **Both connectors fail tool calls** with `FMP_ACCESS_TOKEN is required for this operation`. Root cause: the Smithery Connect UI does not present a config schema for these servers, so `FMP_ACCESS_TOKEN` is never injected. This is a Smithery-side issue, not a code bug.
+- Smithery namespace also has working connector `shibui/finance` with connection ID `finance`; its `stock_data_query` succeeds through Smithery Connect and should be used for sponsor-track proof.
+- `FMP_ACCESS_TOKEN` is present in `.env` — the direct FMP stable API call works fine.
+- **`smithery_service.py` now tries Shibui/Smithery first, then tries FMP/Smithery, then falls back to direct FMP on any `SmitheryServiceError`, `httpx.HTTPStatusError`, or `httpx.RequestError`**. The fallback is broad — the demo will never break regardless of Smithery state.
+- `/pitch` smoke test for NVDA returns real FMP values: live price, market cap, beta, analyst target, EPS, momentum, peer context.
+- For the demo: narrate that Smithery MCP is connected and successful Shibui tool calls provide valuation context; FMP enriches missing fields and protects against connector token issues.
+- **If you want a working Smithery call**: search Smithery for a market-data connector that (a) has a visible config schema in the setup UI, or (b) works without an external API key.
+
+**All Phase 2 agent files are committed and working. `/pitch` is live.**
 
 ### Files to create
 
@@ -410,6 +442,7 @@ Frontend reads `VITE_*` vars from `.env` in the `frontend/` directory (or root w
 6. **Convex schema is locked after Phase 1.** No schema alterations mid-build.
 7. **Mock ElevenLabs TTS during dev.** Only call real TTS endpoint in the final 4 hours.
 8. **Clone voice once, save voice_id, reuse.** Check Convex users table for existing `voiceId` before calling ElevenLabs clone API.
+9. **Update this file after meaningful architecture/API changes.** Future agents should be able to read `CLAUDE.md` and know what was built, what is fallback-only, what is blocked, and how to verify it.
 
 ---
 

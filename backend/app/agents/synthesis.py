@@ -54,6 +54,77 @@ def _portfolio_context(ticker: str, profile: dict) -> str:
     return "This would be a new position against your current portfolio."
 
 
+def _context_summary(context: dict, fallback_keys: list[str]) -> str | None:
+    summary = context.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        return summary.strip().rstrip(".")
+
+    parts = []
+    for key in fallback_keys:
+        value = context.get(key)
+        if value not in (None, "", [], {}):
+            parts.append(f"{key.replace('_', ' ')}: {value}")
+
+    if not parts:
+        return None
+
+    return "; ".join(parts[:3]).rstrip(".")
+
+
+def _format_money(value: object) -> str | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+
+    if abs(number) >= 1_000_000_000_000:
+        return f"${number / 1_000_000_000_000:.1f}T"
+    if abs(number) >= 1_000_000_000:
+        return f"${number / 1_000_000_000:.1f}B"
+    return f"${number:,.0f}"
+
+
+def _report_context_line(valuation: dict) -> str:
+    analyst_context = valuation.get("analyst_context", {})
+    target = analyst_context.get("price_target", {})
+    estimate = analyst_context.get("next_estimate", {})
+    ratings = analyst_context.get("ratings", {})
+    target_price = _format_money(target.get("targetConsensus") or target.get("priceTargetConsensus"))
+    eps_avg = estimate.get("epsAvg") or estimate.get("estimatedEpsAvg")
+    rating = ratings.get("rating") or ratings.get("overallRating")
+
+    analyst_parts = []
+    if target_price:
+        analyst_parts.append(f"analyst consensus target is around {target_price}")
+    if eps_avg:
+        analyst_parts.append(f"future EPS estimate is about {eps_avg}")
+    if rating:
+        analyst_parts.append(f"rating snapshot is {rating}")
+    analyst = ", and ".join(analyst_parts) if analyst_parts else _context_summary(
+        analyst_context,
+        ["price_target", "ratings", "grade_summary", "next_estimate"],
+    )
+    earnings = _context_summary(
+        valuation.get("earnings_context", {}),
+        ["latest_earnings", "eps_surprise_pct", "growth"],
+    )
+    quality = _context_summary(
+        valuation.get("quality_context", {}),
+        ["piotroskiScore", "altmanZScore"],
+    )
+    peers = valuation.get("peer_context", {}).get("peers", [])
+
+    if analyst:
+        return f"Extra context: {analyst}."
+    if earnings:
+        return f"Extra context: {earnings}."
+    if quality:
+        return f"Quality check: {quality}."
+    if isinstance(peers, list) and peers:
+        return f"Peer set to compare: {', '.join(peers[:3])}."
+    return ""
+
+
 async def synthesize_pitch(
     ticker: str,
     profile: dict,
@@ -69,6 +140,7 @@ async def synthesize_pitch(
     news_summary = str(research.get("news_summary", "")).strip()
     consensus = valuation.get("consensus", "unknown")
     portfolio_context = _portfolio_context(ticker, profile)
+    context_line = _report_context_line(valuation)
 
     if len(news_summary) > 150:
         news_summary = news_summary[:147].rstrip() + "..."
@@ -77,5 +149,6 @@ async def synthesize_pitch(
         f"{ticker} scores {total:.1f} for you, {tone} { _verdict(total) }. "
         f"{portfolio_context} The main reason is fit: {style_reason}. The setup also has a {consensus} "
         f"consensus, and recent context says {news_summary} "
+        f"{context_line} "
         f"The caveat is risk: {risk_reason}. {conviction_reason}."
     )
